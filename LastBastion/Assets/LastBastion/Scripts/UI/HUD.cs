@@ -35,6 +35,7 @@ namespace LastBastion
             DrawBossBar(W);
             DrawHeroCard(H);
             DrawControlsHint(W, H);
+            if (Event.current.type == EventType.Repaint) lm.BuildPreviewRange = 0f;
             if (lm.SelectedPlot != null) DrawBuildMenu(W, H);
             if (lm.SelectedTower != null) DrawTowerPanel(W, H);
             GUI.enabled = prev;
@@ -196,7 +197,7 @@ namespace LastBastion
             string text;
             if (lm.HeroSelected) text = "<b>Sir Aldric selected:</b> click the ground or right-click to move him.";
             else if (lm.SelectedPlot != null) text = "Pick a tower, or press <b>1 / 2 / 3</b>.  Esc to cancel.";
-            else text = "<b>LMB</b> build / select   <b>RMB</b> move hero   <b>Q</b> Shield Slam   <b>WASD</b> pan   <b>Wheel</b> zoom   <b>Space</b> next wave";
+            else text = "<b>LMB</b> ground by the road: build  /  select   <b>RMB</b> move hero   <b>Q</b> Shield Slam   <b>WASD</b> pan   <b>Wheel</b> zoom   <b>Space</b> next wave";
             Rect r = new Rect(520f, H - 52f, W - 540f, 36f);
             if (r.width < 300f) return;
             GUI.Label(r, text, UI.S(19, TextAnchor.MiddleRight, FontStyle.Normal, Palette.Dim));
@@ -228,6 +229,7 @@ namespace LastBastion
                 bool prev = GUI.enabled;
                 GUI.enabled = prev && afford;
                 if (UI.Button(b, "", BtnKind.Normal)) lm.TryBuild(plot, type);
+                if (Event.current.type == EventType.Repaint && b.Contains(Event.current.mousePosition)) lm.BuildPreviewRange = def.Range;
                 GUI.enabled = prev;
 
                 Rect icon = new Rect(b.x + b.width * 0.5f - 30f, b.y + 14f, 60f, 60f);

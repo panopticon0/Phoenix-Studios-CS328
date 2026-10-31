@@ -19,6 +19,11 @@ namespace LastBastion
         public const float DrummerTowerSlow = 0.7f; // towers attack at 70% speed (30% slower)
         public const float WarCrySpeed = 1.5f;      // Gorruk's War Cry: +50% speed
 
+        // Free tower placement
+        public const float TowerFootprint = 0.68f;  // tower radius; towers must be 2x this apart
+        public const float MinRoadDistance = 1.5f;  // keeps towers off the road (road half-width 0.85)
+        public const float MaxRoadDistance = 4.5f;  // towers must be built "along the path"
+
         public static int WaveBounty(int waveNumber) => 10 + 5 * waveNumber;
     }
 
@@ -221,14 +226,6 @@ namespace LastBastion
             new Vector2(-18f, 4f), new Vector2(-10f, 4f), new Vector2(-10f, -4f), new Vector2(-2f, -4f),
             new Vector2(-2f, 5f), new Vector2(6f, 5f), new Vector2(6f, -3f), new Vector2(13f, -3f),
             new Vector2(13f, 1f), new Vector2(17f, 1f)
-        };
-
-        public static readonly Vector2[] Plots =
-        {
-            new Vector2(-14f, 6.5f), new Vector2(-14f, 1.5f), new Vector2(-12.5f, -1.5f), new Vector2(-7.5f, 0f),
-            new Vector2(-6f, -6.5f), new Vector2(-4.5f, 2f), new Vector2(0.5f, 0f), new Vector2(2f, 7.5f),
-            new Vector2(3.5f, 1.5f), new Vector2(8.5f, 2f), new Vector2(9.5f, -5.5f), new Vector2(10.5f, 0.5f),
-            new Vector2(15.5f, -1.5f)
         };
 
         public static readonly Vector2 VentPosition = new Vector2(-2f, 0.5f);

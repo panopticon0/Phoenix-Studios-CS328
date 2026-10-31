@@ -2,11 +2,14 @@ using UnityEngine;
 
 namespace LastBastion
 {
-    /// <summary>A stone build site next to the road. Click it to open the build menu.</summary>
+    /// <summary>A tower foundation. Created wherever the player clicks beside the road (free placement).</summary>
     public class BuildPlot : MonoBehaviour
     {
         public Tower Tower;
-        SpriteRenderer ring, highlight;
+        /// <summary>True while the Warden is constructing a tower here.</summary>
+        public bool Building;
+        public bool IsFree => Tower == null && !Building;
+        SpriteRenderer ring, highlight, rangePreview;
         float t;
 
         public Vector2 Position => transform.position;
@@ -29,17 +32,28 @@ namespace LastBastion
             ring = Art.Make("ring", transform, Art.Ring, Palette.WithAlpha(Palette.Ember, 0.45f), Vector2.zero, new Vector2(1.3f, 1.3f), 10);
             highlight = Art.Make("highlight", transform, Art.Ring, Palette.Parchment, Vector2.zero, new Vector2(1.75f, 1.75f), 17);
             highlight.enabled = false;
+            rangePreview = Art.Make("rangePreview", transform, Art.Ring, new Color(1f, 1f, 1f, 0.45f), Vector2.zero, Vector2.one, 11);
+            rangePreview.enabled = false;
+        }
+
+        /// <summary>Show a tower's range while the player hovers it in the build menu (0 hides it).</summary>
+        public void ShowRange(float range)
+        {
+            if (rangePreview == null) return;
+            rangePreview.enabled = range > 0f && IsFree;
+            if (rangePreview.enabled) rangePreview.transform.localScale = Vector3.one * range * 2f;
         }
 
         public void SetSelected(bool selected)
         {
             if (highlight != null) highlight.enabled = selected;
+            if (!selected && rangePreview != null) rangePreview.enabled = false;
         }
 
         void Update()
         {
             t += Time.unscaledDeltaTime;
-            bool empty = Tower == null;
+            bool empty = IsFree;
             ring.enabled = empty;
             if (empty) ring.color = Palette.WithAlpha(Palette.Ember, 0.3f + 0.2f * Mathf.Sin(t * 2.5f));
             if (highlight.enabled) highlight.transform.localScale = Vector3.one * (1.75f + 0.08f * Mathf.Sin(t * 6f));

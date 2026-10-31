@@ -66,6 +66,12 @@ namespace LastBastion
 
         public static readonly Rect MapBounds = new Rect(-20f, -12f, 40f, 24f);
         static readonly Rect WalkBounds = new Rect(-18f, -9.5f, 35f, 19f);
+        static readonly Rect BuildBounds = new Rect(-17.4f, -9.6f, 33.2f, 19.2f);
+
+        SpriteRenderer placeGhost, placeGhostRing;
+
+        /// <summary>Set by the HUD while the mouse is over a tower in the build menu (0 = none).</summary>
+        public float BuildPreviewRange { get; set; }
 
         int activeSpawners;
         bool ventTipShown, heroTipShown;
@@ -152,7 +158,7 @@ namespace LastBastion
             for (int i = 0; i < 70; i++)
             {
                 Vector2 p = new Vector2(Random.Range(-19.5f, 19.5f), Random.Range(-11.5f, 11.5f));
-                if (Route.DistanceTo(p) < 1.6f || NearPlot(p, 1.3f) || Vector2.Distance(p, Level1Data.GatePosition) < 3f) continue;
+                if (Route.DistanceTo(p) < 1.6f || Vector2.Distance(p, Level1Data.GatePosition) < 3f) continue;
                 float s = Random.Range(0.25f, 0.9f);
                 Art.Make("rockShadow", world, Art.Circle, new Color(0f, 0f, 0f, 0.3f), p + new Vector2(0.06f, -0.08f), new Vector2(s * 1.1f, s * 0.8f), 1);
                 Art.Make("rock", world, Art.Circle, Color.Lerp(Palette.Rock, Palette.StoneDark, Random.value), p, new Vector2(s, s * 0.8f), 1);
@@ -163,8 +169,18 @@ namespace LastBastion
             Art.Make("caveGlow", world, Art.Glow, new Color(0.8f, 0.2f, 0.1f, 0.5f), cave + Vector2.left * 1.2f, new Vector2(5f, 5f), 4);
             Art.Make("cave", world, Art.Circle, Palette.Hex("#120D0B"), cave + Vector2.left * 1.6f, new Vector2(3.4f, 3.4f), 5);
 
-            // Plots
-            foreach (var p in Level1Data.Plots) Plots.Add(BuildPlot.Create(world, p));
+            // Build zone: a faint band along both sides of the road shows where towers can go.
+            for (int i = 1; i < pts.Length; i++)
+            {
+                Vector2 a = pts[i - 1], b = pts[i];
+                Vector2 dir = (b - a).normalized;
+                Art.Segment("buildZone", world, a - dir * Balance.MaxRoadDistance, b + dir * Balance.MaxRoadDistance, Balance.MaxRoadDistance * 2f, new Color(0.9f, 0.6f, 0.3f, 0.035f), 1);
+            }
+
+            // Placement preview that follows the mouse
+            placeGhost = Art.Make("placeGhost", world, Art.Circle, new Color(0.5f, 1f, 0.5f, 0.25f), Vector2.zero, Vector2.one * Balance.TowerFootprint * 2f, 30);
+            placeGhostRing = Art.Make("placeGhostRing", placeGhost.transform, Art.Ring, new Color(0.5f, 1f, 0.5f, 0.9f), Vector2.zero, Vector2.one, 31);
+            placeGhost.gameObject.SetActive(false);
 
             // Hazard
             Vent = EmberVent.Create(world, Level1Data.VentPosition);
@@ -186,11 +202,24 @@ namespace LastBastion
             gateFlash = Art.Make("gateFlash", world, Art.Glow, new Color(1f, 0.15f, 0.1f, 0f), new Vector2(g.x + 0.6f, g.y), new Vector2(5f, 5f), 11);
         }
 
-        bool NearPlot(Vector2 p, float r)
+        /// <summary>
+        /// Free placement rule: a tower can go on any open ground beside the road, not on it,
+        /// not too far from it, and not overlapping another tower.
+        /// </summary>
+        public bool CanBuildAt(Vector2 p, out string reason)
         {
-            foreach (var plot in Level1Data.Plots)
-                if (Vector2.Distance(plot, p) < r) return true;
-            return false;
+            reason = "";
+            if (!BuildBounds.Contains(p)) { reason = "Can't build here"; return false; }
+            float road = Route.DistanceTo(p);
+            if (road < Balance.MinRoadDistance) { reason = "Can't build on the road"; return false; }
+            if (road > Balance.MaxRoadDistance) { reason = "Too far from the road"; return false; }
+            if (Vector2.Distance(p, Level1Data.VentPosition) < EmberVent.Radius + Balance.TowerFootprint) { reason = "Too close to the Ember Vent"; return false; }
+            foreach (var plot in Plots)
+            {
+                if (plot == null || plot == SelectedPlot && plot.IsFree) continue;
+                if (Vector2.Distance(plot.Position, p) < Balance.TowerFootprint * 2f) { reason = "Too close to another tower"; return false; }
+            }
+            return true;
         }
 
         // ------------------------------------------------------------------ Loop
@@ -205,6 +234,7 @@ namespace LastBastion
             }
 
             HandleInput();
+            if (SelectedPlot != null) SelectedPlot.ShowRange(BuildPreviewRange);
 
             if (gateFlash != null && gateFlash.color.a > 0f)
                 gateFlash.color = new Color(1f, 0.15f, 0.1f, Mathf.Max(0f, gateFlash.color.a - udt * 1.5f));
@@ -397,17 +427,30 @@ namespace LastBastion
 
         public bool TryBuild(BuildPlot plot, TowerType type)
         {
-            if (plot == null || plot.Tower != null || State != GameState.Playing) return false;
+            if (plot == null || !plot.IsFree || State != GameState.Playing) return false;
             var def = TowerData.Get(type);
             if (Gold < def.Cost) return false;
             Gold -= def.Cost;
+            plot.Building = true;
+            ClearSelection();
+            // The Warden walks up and hammers; FinishBuild is called at the hammer's impact.
+            TowerConstruction.Begin(plot, type);
+            return true;
+        }
+
+        /// <summary>Called by TowerConstruction when the hammer strikes: the tower appears.</summary>
+        public Tower FinishBuild(BuildPlot plot, TowerType type)
+        {
+            if (plot == null) return null;
+            plot.Building = false;
             var tower = Tower.Create(type, plot, world);
             plot.Tower = tower;
             Towers.Add(tower);
             Fx.Burst(plot.Position, new Color(1f, 0.85f, 0.6f, 0.8f), 0.8f, 2.4f, 0.35f);
             Fx.Burst(plot.Position, new Color(0.5f, 0.45f, 0.4f, 0.6f), 1f, 2f, 0.6f, Art.Circle, 16);
-            SelectTower(tower);
-            return true;
+            if (CamCtl != null) CamCtl.Shake(0.12f, 0.06f);
+            if (!HasSelection && State == GameState.Playing) SelectTower(tower);
+            return tower;
         }
 
         public bool TryUpgrade(Tower tower, int branch)
@@ -427,10 +470,15 @@ namespace LastBastion
             int refund = tower.SellValue;
             AddGold(refund);
             AddPopup(tower.Position + Vector2.up * 0.6f, "+" + refund, Palette.Gold);
-            if (tower.Plot != null) tower.Plot.Tower = null;
             Towers.Remove(tower);
             Fx.Burst(tower.Position, new Color(0.5f, 0.45f, 0.4f, 0.7f), 1f, 2.2f, 0.5f, Art.Circle, 16);
             ClearSelection();
+            if (tower.Plot != null)
+            {
+                // Free placement: the foundation goes with the tower, so the ground is open again.
+                Plots.Remove(tower.Plot);
+                Destroy(tower.Plot.gameObject);
+            }
             Destroy(tower.gameObject);
         }
 
@@ -438,7 +486,16 @@ namespace LastBastion
 
         public void ClearSelection()
         {
-            if (SelectedPlot != null) SelectedPlot.SetSelected(false);
+            if (SelectedPlot != null)
+            {
+                SelectedPlot.SetSelected(false);
+                // A build site the player opened but didn't build on disappears again.
+                if (SelectedPlot.IsFree)
+                {
+                    Plots.Remove(SelectedPlot);
+                    Destroy(SelectedPlot.gameObject);
+                }
+            }
             if (SelectedTower != null) SelectedTower.SetSelected(false);
             if (HeroUnit != null) HeroUnit.SetSelected(false);
             SelectedPlot = null;
@@ -448,6 +505,7 @@ namespace LastBastion
 
         public void SelectPlot(BuildPlot plot)
         {
+            if (plot == SelectedPlot) return;
             ClearSelection();
             SelectedPlot = plot;
             plot.SetSelected(true);
@@ -482,6 +540,21 @@ namespace LastBastion
             return null;
         }
 
+        void UpdatePlacementGhost(bool show, Vector2 at)
+        {
+            if (placeGhost == null) return;
+            string reason;
+            bool valid = show && CanBuildAt(at, out reason);
+            // Only show the ghost near the road, so it doesn't follow the cursor everywhere.
+            show = show && Route.DistanceTo(at) <= Balance.MaxRoadDistance + 0.5f && BuildBounds.Contains(at);
+            placeGhost.gameObject.SetActive(show);
+            if (!show) return;
+            placeGhost.transform.position = new Vector3(at.x, at.y, 0f);
+            Color c = valid ? new Color(0.5f, 1f, 0.5f, 1f) : new Color(1f, 0.35f, 0.3f, 1f);
+            placeGhost.color = new Color(c.r, c.g, c.b, 0.22f);
+            placeGhostRing.color = new Color(c.r, c.g, c.b, 0.9f);
+        }
+
         static Vector2 ClampToWalk(Vector2 p)
         {
             return new Vector2(Mathf.Clamp(p.x, WalkBounds.xMin, WalkBounds.xMax), Mathf.Clamp(p.y, WalkBounds.yMin, WalkBounds.yMax));
@@ -500,7 +573,7 @@ namespace LastBastion
                     else Pause();
                 }
             }
-            if (State != GameState.Playing) return;
+            if (State != GameState.Playing) { UpdatePlacementGhost(false, Vector2.zero); return; }
 
             if (GameInput.KeyPressed(GKey.Space)) StartNextWave(true);
             if (GameInput.KeyPressed(GKey.F)) ToggleSpeed();
@@ -525,9 +598,12 @@ namespace LastBastion
             }
             if (GameInput.KeyPressed(GKey.F10)) DebugSkipToBoss();
 
-            if (UI.Busy || Cam == null) return;
+            if (UI.Busy || Cam == null) { UpdatePlacementGhost(false, Vector2.zero); return; }
             Vector3 w3 = Cam.ScreenToWorldPoint(GameInput.MousePosition);
             Vector2 w = new Vector2(w3.x, w3.y);
+
+            bool overSomething = (HeroUnit != null && HeroUnit.HitTest(w)) || TowerAt(w) != null;
+            UpdatePlacementGhost(!HeroSelected && SelectedPlot == null && !overSomething, w);
 
             if (GameInput.LeftPressed)
             {
@@ -535,14 +611,30 @@ namespace LastBastion
                 var tower = TowerAt(w);
                 if (tower != null) { SelectTower(tower); return; }
                 var plot = PlotAt(w);
-                if (plot != null && plot.Tower == null) { SelectPlot(plot); return; }
+                if (plot != null && plot.IsFree) { SelectPlot(plot); return; }
                 if (HeroSelected && HeroUnit != null)
                 {
                     HeroUnit.MoveTo(ClampToWalk(w));
                     ClearSelection();
                     return;
                 }
+
+                // Free placement: open a build site wherever the player clicks beside the road.
+                bool hadSelection = HasSelection;
                 ClearSelection();
+                if (hadSelection) return;
+                string reason;
+                if (CanBuildAt(w, out reason))
+                {
+                    var site = BuildPlot.Create(world, w);
+                    Plots.Add(site);
+                    SelectPlot(site);
+                    UpdatePlacementGhost(false, w);
+                }
+                else if (reason != "Too far from the road")
+                {
+                    AddPopup(w + Vector2.up * 0.5f, reason, Palette.Bad);
+                }
             }
 
             if (GameInput.RightPressed && HeroUnit != null && !HeroUnit.Dead)

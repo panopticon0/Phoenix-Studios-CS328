@@ -35,6 +35,8 @@ namespace LastBastion
         int chain, shots = 1;
 
         float cooldown, disabledTimer, abilityTimer, overchargeTimer, t;
+        const float PopTime = 0.3f;
+        float popTimer;
         Transform head;
         SpriteRenderer rangeRing, disabledMark1, disabledMark2, slowRing, glow;
         readonly List<SpriteRenderer> tint = new List<SpriteRenderer>();
@@ -56,6 +58,7 @@ namespace LastBastion
             tower.BuildVisuals();
             tower.Recalculate();
             tower.cooldown = 0.3f;
+            tower.transform.localScale = Vector3.one * 0.05f;
             return tower;
         }
 
@@ -232,6 +235,15 @@ namespace LastBastion
             float dt = Time.deltaTime;
             if (dt <= 0f || LM == null) return;
             t += dt;
+
+            // Pop-in after the Warden's hammer strike (overshoot, then settle).
+            if (popTimer < PopTime)
+            {
+                popTimer = Mathf.Min(PopTime, popTimer + dt);
+                float k = popTimer / PopTime;
+                float s = 1f + 2.2f * Mathf.Pow(k - 1f, 3f) + 1.2f * Mathf.Pow(k - 1f, 2f);
+                transform.localScale = Vector3.one * Mathf.Max(0.05f, s);
+            }
 
             bool wasDisabled = disabledTimer > 0f;
             if (disabledTimer > 0f) disabledTimer -= dt;

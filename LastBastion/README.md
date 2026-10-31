@@ -41,7 +41,7 @@ Commit the `.meta` files Unity generates next to every script and scene, or the 
 
 | Input | Action |
 |---|---|
-| Left click a stone plot | Open the build menu (then click a tower, or press 1 / 2 / 3) |
+| Left click open ground beside the road | Open the build menu there (then click a tower, or press 1 / 2 / 3). Green ring = OK, red = blocked |
 | Left click a tower | Open its upgrade tree / sell |
 | Right click | Move Sir Aldric (or select him, then left click the ground) |
 | Q | Shield Slam: damage and stun orcs around Sir Aldric |
@@ -63,7 +63,7 @@ Commit the `.meta` files Unity generates next to every script and scene, or the 
 | **Camera, character and controls** | `CameraController.cs`, `Hero.cs`, `LevelManager.HandleInput` | Strategy camera with pan, zoom-to-cursor, drag and map clamping. **Sir Aldric the Unbroken** is the controllable hero: move with right click, blocks up to 3 orcs and fights them in melee, regenerates out of combat, respawns at the gate 12s after falling, and has **Shield Slam** (Q, 14s cooldown). |
 | **Title screen** | `TitleScreen.cs` | The Bastion at dusk with rising embers and the Warhost's torches on the horizon. Campaign, How to Play (goals and controls), Quit. |
 | **HUD mechanic** | `HUD.cs` | The command bar the game is played through: gold, lives and wave tracker; a **wave scout panel** showing the next wave's enemies with **Call Early** (Space) for bonus gold; Sir Aldric's card (HP, status, Shield Slam cooldown); the build menu at the plot; the **tower upgrade-tree panel**; the boss bar (enraged / axe-incoming states); Captain Brand's alerts; floating gold and damage popups; an eruption countdown over the vent; pause, victory and defeat screens with a 3-star rating. |
-| **Level** | `LevelManager.cs`, `GameData.cs › Level1Data` | **The Ashen Pass**: a winding mountain road from the orc cave to the Bastion gate, 13 build plots, 10 waves. |
+| **Level** | `LevelManager.cs`, `GameData.cs › Level1Data` | **The Ashen Pass**: a winding mountain road from the orc cave to the Bastion gate, 10 waves. **Free tower placement:** build on any open ground beside the road (within 4.5 units, not on the road, not overlapping another tower). A green/red ring previews the spot, and hovering a tower in the build menu shows its range. |
 | **Level select** | `LevelSelectScreen.cs` | All three campaign battles from the GDD (Ashen Pass playable; Weeping Marsh and Siege of the Bastion locked "coming in the Beta"), saved stars per difficulty, and difficulty choice (Recruit / Warden / Veteran). |
 | **Combat mechanic** | `Tower.cs`, `Projectile.cs` | Towers auto-target the orc furthest along the road. **Archer Tower** (fast, single target), **Catapult** (lobbed splash that can miss fast enemies), **Mage Tower** (magic ignores armor). Each has a **3 × 3 upgrade tree** (Power / Speed / Utility); one branch can reach Tier 3 and a second Tier 2. Upgrades add abilities: piercing, armor-piercing, slow, burn, stun, Hunter's Mark, chain lightning, Dispel, Arrow Storm, Meteor, Overcharge, Siege Engine. Armor, physical / magic / true damage. |
 | **Enemy with a unique mechanic** | `Enemy.cs` (War Drummer) | **War Drummer**: its drum aura slows every tower within 3.5 units by 30% (towers show a red ring and the panel says "Slowed"). Kill it first, or Dispel it with a Mage Tower to silence it. Also in the level: Orc Grunts and fast **Wolf Riders**. |
@@ -72,8 +72,18 @@ Commit the `.meta` files Unity generates next to every script and scene, or the 
 
 ---
 
+## Tower building animation (Warden)
+
+Buying a tower now plays a construction animation instead of the tower appearing instantly. A Warden appears beside the plot and swings a hammer. At the impact (0.35s) the magic particles burst and the tower pops in. The Warden leaves at 0.9s. The gold is spent on click and the plot is locked while it builds. The timing lives in `Scripts/Towers/TowerConstruction.cs` (`ImpactTime`, `BuildDuration`).
+
+**To use your animated Warden:** in Unity, move (drag in the Project window, don't copy outside Unity) `Warden_Build.prefab` into `Assets/LastBastion/Resources/`, keeping the name `Warden_Build`. Unity keeps its sprite, Animator controller, material and nested `Buidling_Particle_System` links. The game loads it automatically. If the prefab isn't there, a code-drawn placeholder Warden plays the same timing.
+
+Don't add the old `BuildManager.cs` to this project. It depends on `GameManager`, `MapBuilder` and `SpriteFactory` from the earlier prototype and won't compile here. `TowerConstruction.cs` replaces its `BuildTower` coroutine. `WardenBuildEffect.cs` is fine to keep; if it's on the prefab, the game turns it off so the timings don't fight.
+
+---
+
 ## Tuning
-All balance numbers are in `Scripts/Data/GameData.cs`: start gold, wave timers, enemy HP/speed/gold, tower stats, upgrade costs and the wave list. Hero numbers are constants at the top of `Hero.cs`, and the vent's cycle is at the top of `EmberVent.cs`.
+All balance numbers are in `Scripts/Data/GameData.cs`: placement rules (`TowerFootprint`, `MinRoadDistance`, `MaxRoadDistance`), start gold, wave timers, enemy HP/speed/gold, tower stats, upgrade costs and the wave list. Hero numbers are constants at the top of `Hero.cs`, and the vent's cycle is at the top of `EmberVent.cs`.
 
 ## Alpha notes / known limitations
 - Placeholder art and no audio yet. All sprites are generated shapes in `Art.cs`, ready to be swapped for real art.
