@@ -110,6 +110,8 @@ namespace LastBastion
                 }
             }
             Fx.Ring(pos, new Color(0.6f, 0.95f, 1f, 0.8f), 0.2f, 1.1f, 0.3f);
+            AudioManager.Play(Sfx.Hammer);
+            AudioManager.Play(Sfx.Place, 0.7f);
             Destroy(scaffold.gameObject);
 
             if (LevelManager.I != null) LevelManager.I.FinishBuild(plot, type);

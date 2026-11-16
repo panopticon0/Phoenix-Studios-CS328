@@ -6,7 +6,7 @@ using UnityEngine.InputSystem;
 namespace LastBastion
 {
     /// <summary>Keys the game listens for.</summary>
-    public enum GKey { W, A, S, D, Up, Down, Left, Right, Space, Escape, Q, F, H, Digit1, Digit2, Digit3, F9, F10 }
+    public enum GKey { W, A, S, D, Up, Down, Left, Right, Space, Escape, Q, F, H, E, R, M, Digit1, Digit2, Digit3, Digit4, F9, F10 }
 
     /// <summary>
     /// Thin input wrapper so the game runs whether the project uses the old Input Manager,
@@ -32,9 +32,13 @@ namespace LastBastion
                 case GKey.Q: return KeyCode.Q;
                 case GKey.F: return KeyCode.F;
                 case GKey.H: return KeyCode.H;
+                case GKey.E: return KeyCode.E;
+                case GKey.R: return KeyCode.R;
+                case GKey.M: return KeyCode.M;
                 case GKey.Digit1: return KeyCode.Alpha1;
                 case GKey.Digit2: return KeyCode.Alpha2;
                 case GKey.Digit3: return KeyCode.Alpha3;
+                case GKey.Digit4: return KeyCode.Alpha4;
                 case GKey.F9: return KeyCode.F9;
                 case GKey.F10: return KeyCode.F10;
             }
@@ -43,6 +47,8 @@ namespace LastBastion
 
         public static Vector2 MousePosition => Input.mousePosition;
         public static bool LeftPressed => Input.GetMouseButtonDown(0);
+        public static bool LeftHeld => Input.GetMouseButton(0);
+        public static bool LeftReleased => Input.GetMouseButtonUp(0);
         public static bool RightPressed => Input.GetMouseButtonDown(1);
         public static bool MiddleHeld => Input.GetMouseButton(2);
         public static float Scroll => Input.mouseScrollDelta.y;
@@ -66,9 +72,13 @@ namespace LastBastion
                 case GKey.Q: return Key.Q;
                 case GKey.F: return Key.F;
                 case GKey.H: return Key.H;
+                case GKey.E: return Key.E;
+                case GKey.R: return Key.R;
+                case GKey.M: return Key.M;
                 case GKey.Digit1: return Key.Digit1;
                 case GKey.Digit2: return Key.Digit2;
                 case GKey.Digit3: return Key.Digit3;
+                case GKey.Digit4: return Key.Digit4;
                 case GKey.F9: return Key.F9;
                 case GKey.F10: return Key.F10;
             }
@@ -77,6 +87,8 @@ namespace LastBastion
 
         public static Vector2 MousePosition => Mouse.current != null ? Mouse.current.position.ReadValue() : Vector2.zero;
         public static bool LeftPressed => Mouse.current != null && Mouse.current.leftButton.wasPressedThisFrame;
+        public static bool LeftHeld => Mouse.current != null && Mouse.current.leftButton.isPressed;
+        public static bool LeftReleased => Mouse.current != null && Mouse.current.leftButton.wasReleasedThisFrame;
         public static bool RightPressed => Mouse.current != null && Mouse.current.rightButton.wasPressedThisFrame;
         public static bool MiddleHeld => Mouse.current != null && Mouse.current.middleButton.isPressed;
 
@@ -96,6 +108,8 @@ namespace LastBastion
 #else
         public static Vector2 MousePosition => Vector2.zero;
         public static bool LeftPressed => false;
+        public static bool LeftHeld => false;
+        public static bool LeftReleased => false;
         public static bool RightPressed => false;
         public static bool MiddleHeld => false;
         public static float Scroll => 0f;

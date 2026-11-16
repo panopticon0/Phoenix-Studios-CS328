@@ -51,6 +51,62 @@ namespace LastBastion
             return new Vector2(s.x / Scale, (Screen.height - s.y) / Scale);
         }
 
+        /// <summary>Reference-canvas GUI point to a world position (for things that fly to the HUD).</summary>
+        public static Vector3 GuiToWorld(Camera cam, Vector2 gui)
+        {
+            Vector3 w = cam.ScreenToWorldPoint(new Vector3(gui.x * Scale, Screen.height - gui.y * Scale, 0f));
+            w.z = 0f;
+            return w;
+        }
+
+        public static Vector2 MouseGui
+        {
+            get
+            {
+                Vector2 m = GameInput.MousePosition;
+                return new Vector2(m.x / Scale, (Screen.height - m.y) / Scale);
+            }
+        }
+
+        /// <summary>Radial cooldown clock: fills clockwise from 12 o'clock.</summary>
+        public static void Clock(Rect r, float frac, Color color)
+        {
+            if (Event.current.type != EventType.Repaint || frac <= 0.001f) return;
+            GUI.DrawTexture(r, Art.RadialTexture(frac), ScaleMode.StretchToFill, true, 0f, color, 0f, 0f);
+        }
+
+        /// <summary>A small labelled tooltip box anchored next to a rect.</summary>
+        public static void Tooltip(Rect anchor, string title, string body, bool toLeft, float width = 340f)
+        {
+            float h = 44f + Mathf.Ceil(body.Length / 34f) * 22f;
+            float x = toLeft ? anchor.x - width - 10f : anchor.xMax + 10f;
+            float y = Mathf.Clamp(anchor.y, 70f, H - h - 10f);
+            Rect r = new Rect(x, y, width, h);
+            Rounded(r, new Color(0.06f, 0.05f, 0.04f, 0.97f), 10f);
+            Outline(r, Palette.Ember, 2f, 10f);
+            GUI.Label(new Rect(r.x + 14f, r.y + 8f, width - 28f, 28f), title, S(21, TextAnchor.MiddleLeft, FontStyle.Bold, Palette.Parchment));
+            GUI.Label(new Rect(r.x + 14f, r.y + 38f, width - 28f, h - 44f), body, S(18, TextAnchor.UpperLeft, FontStyle.Normal, Palette.Muted, true));
+        }
+
+        public static float Slider(Rect r, string label, float value)
+        {
+            GUI.Label(new Rect(r.x, r.y, 150f, r.height), label, S(21, TextAnchor.MiddleLeft, FontStyle.Bold, Palette.Parchment));
+            Rect bar = new Rect(r.x + 160f, r.y + r.height * 0.5f - 6f, r.width - 230f, 12f);
+            Rounded(bar, new Color(0f, 0f, 0f, 0.5f), 6f);
+            Rounded(new Rect(bar.x, bar.y, bar.width * value, bar.height), Palette.Ember, 6f);
+            Disc(new Rect(bar.x + bar.width * value - 11f, bar.y - 5f, 22f, 22f), Palette.Parchment);
+            GUI.Label(new Rect(r.xMax - 60f, r.y, 60f, r.height), Mathf.RoundToInt(value * 100f) + "%", S(19, TextAnchor.MiddleRight, FontStyle.Normal, Palette.Muted));
+            var e = Event.current;
+            Rect hit = new Rect(bar.x - 10f, r.y, bar.width + 20f, r.height);
+            if ((e.type == EventType.MouseDown || e.type == EventType.MouseDrag) && e.button == 0 && hit.Contains(e.mousePosition))
+            {
+                value = Mathf.Clamp01((e.mousePosition.x - bar.x) / bar.width);
+                GUI.changed = true;
+                e.Use();
+            }
+            return value;
+        }
+
         /// <summary>Cached text style. Rich text is on, so &lt;b&gt; and &lt;color&gt; tags work.</summary>
         public static GUIStyle S(int size, TextAnchor anchor = TextAnchor.UpperLeft, FontStyle font = FontStyle.Normal, Color? color = null, bool wrap = false)
         {
@@ -153,7 +209,9 @@ namespace LastBastion
             }
             Rounded(r, border, 10f);
             Rounded(new Rect(r.x + 2f, r.y + 2f, r.width - 4f, r.height - 4f), fill, 8f);
-            return GUI.Button(r, text, S(fontSize, TextAnchor.MiddleCenter, FontStyle.Bold, ink, true));
+            bool clicked = GUI.Button(r, text, S(fontSize, TextAnchor.MiddleCenter, FontStyle.Bold, ink, true));
+            if (clicked) AudioManager.Play(Sfx.Click, 0.6f);
+            return clicked;
         }
 
         /// <summary>Dark full-screen veil for modal overlays; also blocks world clicks.</summary>

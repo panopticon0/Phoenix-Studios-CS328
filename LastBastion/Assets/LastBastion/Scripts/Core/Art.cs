@@ -34,6 +34,10 @@ namespace LastBastion
         public static readonly Color OrcArmor = Hex("#A0442A");
         public static readonly Color Iron = Hex("#6A6560");
         public static readonly Color HeroBlue = Hex("#2F5FA8");
+        public static readonly Color HeroGlow = Hex("#FFD36A");
+        public static readonly Color Shard = Hex("#FF8A3C");
+        public static readonly Color Ash = Hex("#8E8780");
+        public static readonly Color Interrupt = Hex("#8FD8FF");
 
         // Upgrade branches
         public static readonly Color BranchPower = Hex("#E0782E");
@@ -71,6 +75,54 @@ namespace LastBastion
         public static Sprite Glow { get { if (glow == null) glow = MakeRadial(128, 2); return glow; } }
         public static Sprite Square { get { if (square == null) square = MakeSquare(); return square; } }
         public static Sprite Triangle { get { if (triangle == null) triangle = MakeTriangle(128); return triangle; } }
+
+        // Radial "clock" fill sprites/textures for cooldowns, cached in 2% steps.
+        static readonly Sprite[] radialSprites = new Sprite[51];
+        static readonly Texture2D[] radialTextures = new Texture2D[51];
+
+        /// <summary>Pie-shaped fill (0..1, clockwise from 12 o'clock) as a world sprite.</summary>
+        public static Sprite Radial(float frac)
+        {
+            int i = Mathf.Clamp(Mathf.RoundToInt(Mathf.Clamp01(frac) * 50f), 0, 50);
+            if (radialSprites[i] == null)
+            {
+                var tex = RadialTexture(frac);
+                radialSprites[i] = Sprite.Create(tex, new Rect(0, 0, tex.width, tex.height), new Vector2(0.5f, 0.5f), tex.width);
+            }
+            return radialSprites[i];
+        }
+
+        /// <summary>Pie-shaped fill texture for IMGUI cooldown clocks.</summary>
+        public static Texture2D RadialTexture(float frac)
+        {
+            int i = Mathf.Clamp(Mathf.RoundToInt(Mathf.Clamp01(frac) * 50f), 0, 50);
+            if (radialTextures[i] != null) return radialTextures[i];
+            const int size = 64;
+            float f = i / 50f;
+            var tex = new Texture2D(size, size, TextureFormat.RGBA32, false);
+            tex.wrapMode = TextureWrapMode.Clamp;
+            tex.filterMode = FilterMode.Bilinear;
+            var px = new Color32[size * size];
+            float r = size * 0.5f;
+            for (int y = 0; y < size; y++)
+            {
+                for (int x = 0; x < size; x++)
+                {
+                    float dx = x + 0.5f - r, dy = y + 0.5f - r;
+                    float d = Mathf.Sqrt(dx * dx + dy * dy);
+                    float edge = Mathf.Clamp01(r - 1f - d);
+                    // angle measured clockwise from straight up, 0..1
+                    float ang = Mathf.Atan2(dx, dy) / (2f * Mathf.PI);
+                    if (ang < 0f) ang += 1f;
+                    float a = ang <= f ? edge : 0f;
+                    px[y * size + x] = new Color32(255, 255, 255, (byte)(a * 255f));
+                }
+            }
+            tex.SetPixels32(px);
+            tex.Apply(false, true);
+            radialTextures[i] = tex;
+            return tex;
+        }
 
         /// <summary>Unlit sprite material created by the editor setup (works in URP and Built-in).</summary>
         public static Material SpriteMaterial

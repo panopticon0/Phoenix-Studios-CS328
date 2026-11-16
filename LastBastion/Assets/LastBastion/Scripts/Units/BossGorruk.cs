@@ -3,37 +3,42 @@ using UnityEngine;
 namespace LastBastion
 {
     /// <summary>
-    /// Gorruk Skullsplitter, Orc Warlord (Level 1 boss). Two unique mechanics:
-    ///  1. Axe Throw: every 9s he marks a tower (red telegraph line for 1s), then hurls his axe
-    ///     and knocks that tower out for 5 seconds. He targets the tower with the most gold invested.
-    ///  2. War Cry: at half health he stops to roar, and every orc on the field moves 50% faster.
-    ///     Mage Towers with Dispel can strip the frenzy from individual orcs.
+    /// Gorruk Skullsplitter, Orc Warlord (wave 30). Two unique mechanics, both telegraphed and
+    /// both INTERRUPTIBLE by any stun during the wind-up:
+    ///  1. Axe Throw: every 9s he marks the tower with the most gold invested (red line, 1.2s),
+    ///     then hurls his axe and knocks that tower out for 5 seconds.
+    ///  2. War Cry: at half health he plants his feet and draws breath for 2s (growing red ring),
+    ///     then roars and every orc on the field moves 50% faster. Interrupted, he retries in 8s.
     /// </summary>
     public class BossGorruk : Enemy
     {
         public const float AxeInterval = 9f;
-        public const float AxeTelegraph = 1.0f;
+        public const float AxeTelegraph = 1.2f;
         public const float AxeRange = 9f;
         public const float AxeDisable = 5f;
+        public const float WarCryWindUp = 2f;
 
         public bool Enraged { get; private set; }
-        public bool Telegraphing => axeTarget != null;
 
         float axeTimer = 5f;
         float telegraphTimer;
-        float roarTimer;
+        float warCryWind, warCryRetry, roarTimer;
+        bool warnedWarCry;
         Tower axeTarget;
-        SpriteRenderer telegraphLine, telegraphMark;
+        SpriteRenderer telegraphLine, telegraphMark, warCryRing;
 
-        protected override void Setup(EnemyType type, PathRoute route)
+        public override bool WindingUp => axeTarget != null || warCryWind > 0f;
+        public override string WindUpName => warCryWind > 0f ? "WAR CRY" : axeTarget != null ? "AXE THROW" : "";
+        public override float WindUpProgress => warCryWind > 0f ? 1f - warCryWind / WarCryWindUp : axeTarget != null ? 1f - telegraphTimer / AxeTelegraph : 0f;
+        protected override bool CanMove => warCryWind <= 0f && roarTimer <= 0f;
+
+        protected override void Setup(EnemyType type, PathRoute route, int wave)
         {
-            base.Setup(type, route);
-            bar.AlwaysShow = true;
-            bar.Set(1f);
+            base.Setup(type, route, wave);
             telegraphLine = Art.Make("axeTelegraph", null, Art.Square, new Color(1f, 0.2f, 0.15f, 0.6f), Vector2.zero, Vector2.one, 30);
             telegraphMark = Art.Make("axeTarget", null, Art.Ring, new Color(1f, 0.2f, 0.15f, 0.9f), Vector2.zero, Vector2.one * 1.6f, 31);
-            telegraphLine.enabled = false;
-            telegraphMark.enabled = false;
+            warCryRing = Art.Make("warCryRing", transform, Art.Ring, new Color(1f, 0.25f, 0.15f, 0.9f), Vector2.zero, Vector2.one, 32);
+            telegraphLine.enabled = telegraphMark.enabled = warCryRing.enabled = false;
         }
 
         protected override void Update()
@@ -42,20 +47,45 @@ namespace LastBastion
             float dt = Time.deltaTime;
             if (dt <= 0f) return;
 
-            if (!Enraged && Hp <= MaxHp * 0.5f) WarCry();
-
             if (roarTimer > 0f)
             {
                 roarTimer -= dt;
                 if (body != null) body.localScale = Vector3.one * (1.1f + 0.08f * Mathf.Sin(Time.time * 30f));
             }
-            else
-            {
-                base.Update();
-                if (!Alive) return;
-            }
+            base.Update();
+            if (!Alive || Stunned) return;
 
+            UpdateWarCry(dt);
             UpdateAxe(dt);
+        }
+
+        void UpdateWarCry(float dt)
+        {
+            if (warCryRetry > 0f) warCryRetry -= dt;
+            if (!Enraged && warCryWind <= 0f && warCryRetry <= 0f && Hp <= MaxHp * 0.5f)
+            {
+                warCryWind = WarCryWindUp;
+                warCryRing.enabled = true;
+                AudioManager.Play(Sfx.Warn);
+                if (!warnedWarCry && LevelManager.I != null)
+                {
+                    warnedWarCry = true;
+                    LevelManager.I.Announce("Gorruk is drawing breath!", "STUN HIM NOW (Shield Slam, Earthshaker or the Rockslide) to interrupt the War Cry.", "Captain Brand", Palette.Interrupt, 5f);
+                }
+            }
+            if (warCryWind > 0f)
+            {
+                warCryWind -= dt;
+                float k = 1f - warCryWind / WarCryWindUp;
+                warCryRing.transform.localScale = Vector3.one * Mathf.Lerp(6f, 1.8f, k);
+                warCryRing.color = new Color(1f, 0.25f, 0.15f, 0.4f + 0.5f * Mathf.Abs(Mathf.Sin(Time.time * (6f + 14f * k))));
+                if (body != null) body.localScale = Vector3.one * (1f + 0.12f * k);
+                if (warCryWind <= 0f)
+                {
+                    warCryRing.enabled = false;
+                    WarCry();
+                }
+            }
         }
 
         void UpdateAxe(float dt)
@@ -87,6 +117,7 @@ namespace LastBastion
                 return;
             }
 
+            if (warCryWind > 0f) return;
             axeTimer -= dt;
             if (axeTimer > 0f) return;
             Tower t = PickTarget();
@@ -94,6 +125,25 @@ namespace LastBastion
             axeTarget = t;
             telegraphTimer = AxeTelegraph;
             telegraphLine.enabled = telegraphMark.enabled = true;
+            AudioManager.Play(Sfx.Warn, 0.7f);
+        }
+
+        protected override void OnInterrupted()
+        {
+            if (warCryWind > 0f)
+            {
+                warCryWind = 0f;
+                warCryRetry = 8f;
+                warCryRing.enabled = false;
+                if (LevelManager.I != null) LevelManager.I.AddPopup(Position + Vector2.up * 1.3f, "WAR CRY INTERRUPTED!", Palette.Interrupt);
+            }
+            if (axeTarget != null)
+            {
+                axeTarget = null;
+                telegraphLine.enabled = telegraphMark.enabled = false;
+                axeTimer = AxeInterval;
+                if (LevelManager.I != null) LevelManager.I.AddPopup(Position + Vector2.up * 1.3f, "AXE THROW INTERRUPTED!", Palette.Interrupt);
+            }
         }
 
         Tower PickTarget()
@@ -119,9 +169,11 @@ namespace LastBastion
         void ThrowAxe(Tower target)
         {
             Tower victim = target;
+            AudioManager.Play(Sfx.Axe);
             Projectile.Lob(Position, victim.Position, 0.55f, 1.6f, Art.Triangle, Palette.Hex("#C8C2BA"), new Vector2(0.55f, 0.7f), 900f, landPos =>
             {
                 Fx.Burst(landPos, new Color(1f, 0.6f, 0.3f, 0.9f), 0.6f, 2.2f, 0.35f);
+                AudioManager.Play(Sfx.Impact, 0.8f);
                 if (victim != null)
                 {
                     victim.Disable(AxeDisable);
@@ -133,14 +185,15 @@ namespace LastBastion
         void WarCry()
         {
             Enraged = true;
-            roarTimer = 1.3f;
+            roarTimer = 1.0f;
+            AudioManager.Play(Sfx.Roar);
             var lm = LevelManager.I;
             if (lm == null) return;
             foreach (var e in lm.Enemies)
                 if (e != null && e.Alive) e.ApplyWarCry();
             for (int i = 0; i < 3; i++) Fx.Ring(Position, new Color(1f, 0.3f, 0.15f, 0.8f - i * 0.2f), 0.6f, 6f + i * 3f, 0.6f + i * 0.25f);
             if (lm.CamCtl != null) lm.CamCtl.Shake(0.5f, 0.35f);
-            lm.Announce("WAR CRY!", "Gorruk's roar drives every orc on the field 50% faster. Mage Towers with Dispel can strip the frenzy.", "Captain Brand", Palette.Bad, 6f);
+            lm.Announce("WAR CRY!", "Every orc on the field is 50% faster. Mage Towers with Dispel strip the frenzy.", "Captain Brand", Palette.Bad, 5f);
         }
 
         protected override void Die()

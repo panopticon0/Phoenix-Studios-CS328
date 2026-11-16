@@ -4,9 +4,11 @@ using UnityEngine;
 namespace LastBastion
 {
     /// <summary>
-    /// Core combat mechanic: towers auto-target the enemy furthest along the road, and every tower
-    /// has a 3-branch x 3-tier upgrade tree (Power / Speed / Utility). A tower may take one branch to
-    /// Tier 3 and a second branch to Tier 2, so two towers of the same type can play very differently.
+    /// Towers auto-target orcs in range using a player-chosen priority (First / Last / Strong / Close,
+    /// like Bloons). Every tower has a 3-branch x 3-tier upgrade tree (Power / Speed / Utility):
+    /// one branch can reach Tier 3 and a second Tier 2.
+    /// Beta: kill counts, sight (invisible enemies), Ash Storm range loss, Rally Cry buff,
+    /// ability charge rings and sound.
     /// </summary>
     public class Tower : MonoBehaviour
     {
@@ -15,6 +17,8 @@ namespace LastBastion
         public BuildPlot Plot { get; private set; }
         public readonly int[] Levels = new int[3];
         public int Invested { get; private set; }
+        public int Kills { get; private set; }
+        public TargetPriority Priority = TargetPriority.First;
 
         // Computed stats
         public float Damage { get; private set; }
@@ -22,23 +26,31 @@ namespace LastBastion
         public float Range { get; private set; }
         public float Splash { get; private set; }
         public DamageKind Kind { get; private set; }
+        public bool SeesInvisible { get; private set; }
         public bool Disabled => disabledTimer > 0f;
+        public bool Frozen => frozen && disabledTimer > 0f;
         public float DisabledLeft => disabledTimer;
         public bool SlowedByDrummer { get; private set; }
+        public bool InAshStorm { get; private set; }
+        public bool Rallied => rallyTimer > 0f;
         public bool Overcharged => overchargeTimer > 0f;
+        public float EffectiveRange => Range * (InAshStorm ? Balance.AshStormRangeMult : 1f);
         public Vector2 Position => transform.position;
         public int SellValue => Mathf.RoundToInt(Invested * Balance.SellRefund);
+        public bool HasAbility => arrowStorm || meteor || overcharge;
+        public float AbilityCharge => HasAbility ? 1f - Mathf.Clamp01(abilityTimer / Mathf.Max(0.01f, abilityInterval)) : 0f;
 
         // Upgrade effects
         bool pierce, markOnHit, dispelOnHit, arrowStorm, meteor, overcharge;
-        float burnDps, slowMult = 1f, slowDuration, stunOnHit;
+        float burnDps, slowMult = 1f, slowDuration, stunOnHit, abilityInterval;
         int chain, shots = 1;
 
-        float cooldown, disabledTimer, abilityTimer, overchargeTimer, t;
+        float cooldown, disabledTimer, abilityTimer, overchargeTimer, rallyTimer, t;
+        bool frozen;
         const float PopTime = 0.3f;
         float popTimer;
         Transform head;
-        SpriteRenderer rangeRing, disabledMark1, disabledMark2, slowRing, glow;
+        SpriteRenderer rangeRing, disabledMark1, disabledMark2, slowRing, glow, chargeRing, chargeBack, rallyGlow;
         readonly List<SpriteRenderer> tint = new List<SpriteRenderer>();
         readonly List<Color> tintBase = new List<Color>();
         readonly SpriteRenderer[,] pips = new SpriteRenderer[3, 3];
@@ -79,6 +91,8 @@ namespace LastBastion
 
             slowRing = Art.Make("drummerSlow", transform, Art.Ring, new Color(0.85f, 0.3f, 0.2f, 0.9f), Vector2.zero, Vector2.one * 1.5f, 12);
             slowRing.enabled = false;
+            rallyGlow = Art.Make("rally", transform, Art.Glow, new Color(1f, 0.85f, 0.4f, 0.6f), Vector2.zero, Vector2.one * 2f, 11);
+            rallyGlow.enabled = false;
 
             Part("base", Art.Square, Palette.StoneDark, Vector2.zero, new Vector2(1.2f, 1.2f), 12);
             Part("wall", Art.Square, Palette.Stone, Vector2.zero, new Vector2(1.0f, 1.0f), 13);
@@ -115,6 +129,11 @@ namespace LastBastion
                 for (int tier = 0; tier < 3; tier++)
                     pips[b, tier] = Art.Make("pip", transform, Art.Circle, new Color(0f, 0f, 0f, 0.6f), new Vector2(-0.28f + b * 0.28f, -0.74f - tier * 0.16f), Vector2.one * 0.13f, 18);
 
+            // Tier-3 ability charge clock (top-right corner)
+            chargeBack = Art.Make("chargeBack", transform, Art.Circle, new Color(0f, 0f, 0f, 0.6f), new Vector2(0.62f, 0.62f), Vector2.one * 0.42f, 18);
+            chargeRing = Art.Make("charge", transform, Art.Radial(0f), Palette.HeroGlow, new Vector2(0.62f, 0.62f), Vector2.one * 0.36f, 19);
+            chargeBack.enabled = chargeRing.enabled = false;
+
             disabledMark1 = Art.Make("ko1", transform, Art.Square, Palette.Bad, Vector2.zero, new Vector2(1.1f, 0.16f), 19, 45f);
             disabledMark2 = Art.Make("ko2", transform, Art.Square, Palette.Bad, Vector2.zero, new Vector2(1.1f, 0.16f), 19, -45f);
             disabledMark1.enabled = disabledMark2.enabled = false;
@@ -126,6 +145,12 @@ namespace LastBastion
             rangeRing.transform.GetChild(0).gameObject.SetActive(selected);
         }
 
+        public void CyclePriority(int dir)
+        {
+            int n = 4;
+            Priority = (TargetPriority)((((int)Priority + dir) % n + n) % n);
+        }
+
         /// <summary>Upgrade rule: one branch to Tier 3, a second branch to Tier 2, the third stays locked.</summary>
         public bool CanUpgrade(int branch, out string reason)
         {
@@ -133,10 +158,9 @@ namespace LastBastion
             var test = new int[] { Levels[0], Levels[1], Levels[2] };
             test[branch]++;
             System.Array.Sort(test);
-            // ascending after sort: test[2] largest
             if (test[2] > 3 || test[1] > 2 || test[0] > 0)
             {
-                reason = "Path locked";
+                reason = "Path closed";
                 return false;
             }
             reason = "";
@@ -151,6 +175,15 @@ namespace LastBastion
             Invested += cost;
             Recalculate();
             Fx.Ring(Position, Palette.Branch(branch), 0.4f, 1.4f, 0.4f);
+            Fx.Sparks(Position, Palette.Branch(branch), 10, 3f, 0.5f);
+            AudioManager.Play(Sfx.Upgrade);
+        }
+
+        public void AddKill() { Kills++; }
+
+        public void ApplyRally(float duration)
+        {
+            rallyTimer = Mathf.Max(rallyTimer, duration);
         }
 
         void Recalculate()
@@ -162,6 +195,7 @@ namespace LastBastion
             Splash = Def.Splash;
             pierce = markOnHit = dispelOnHit = arrowStorm = meteor = overcharge = false;
             burnDps = 0f; slowMult = 1f; slowDuration = 0f; stunOnHit = 0f; chain = 0; shots = 1;
+            SeesInvisible = false;
 
             switch (Type)
             {
@@ -170,7 +204,7 @@ namespace LastBastion
                     if (p >= 2) pierce = true;
                     if (p >= 3) { dmgMult += 0.3f; Kind = DamageKind.True; }
                     if (s >= 3) arrowStorm = true;
-                    if (u >= 1) rangeMult += 0.2f;
+                    if (u >= 1) { rangeMult += 0.2f; SeesInvisible = true; }
                     if (u >= 2) markOnHit = true;
                     if (u >= 3) burnDps = 6f;
                     break;
@@ -181,7 +215,7 @@ namespace LastBastion
                     if (s >= 3) shots = 3;
                     if (u >= 1) { slowMult = 0.7f; slowDuration = 2f; }
                     if (u >= 2) burnDps = 8f;
-                    if (u >= 3) rangeMult += 0.3f;
+                    if (u >= 3) { rangeMult += 0.3f; SeesInvisible = true; }
                     break;
                 case TowerType.Mage:
                     if (p >= 1) dmgMult += 0.2f;
@@ -189,15 +223,15 @@ namespace LastBastion
                     if (p >= 3) meteor = true;
                     if (s >= 3) overcharge = true;
                     if (u >= 1) { slowMult = 0.75f; slowDuration = 2f; }
-                    if (u >= 2) rangeMult += 0.2f;
+                    if (u >= 2) { rangeMult += 0.2f; SeesInvisible = true; }
                     if (u >= 3) dispelOnHit = true;
                     break;
             }
 
+            abilityInterval = arrowStorm ? 8f : meteor ? 10f : overcharge ? 12f : 0f;
             Damage = Def.Damage * dmgMult;
             Interval = Def.Interval / (1f + speedBonus);
             Range = Def.Range * rangeMult;
-            rangeRing.transform.localScale = Vector3.one * Range * 2f;
 
             for (int b = 0; b < 3; b++)
                 for (int tier = 0; tier < 3; tier++)
@@ -208,26 +242,34 @@ namespace LastBastion
         public List<string> SpecialLines()
         {
             var lines = new List<string>();
-            if (Type == TowerType.Catapult) lines.Add("Splash radius " + Splash.ToString("0.0"));
-            if (pierce) lines.Add("Arrows pierce to a second enemy");
+            if (SeesInvisible) lines.Add("Sees invisible");
+            if (Type == TowerType.Catapult) lines.Add("Splash " + Splash.ToString("0.0"));
+            if (pierce) lines.Add("Pierces");
             if (Kind == DamageKind.True && Type == TowerType.Archer) lines.Add("Ignores armor");
-            if (markOnHit) lines.Add("Marks targets (+15% damage taken)");
-            if (burnDps > 0f) lines.Add("Burns for " + burnDps.ToString("0") + " dmg/s");
-            if (slowDuration > 0f) lines.Add("Slows enemies " + Mathf.RoundToInt((1f - slowMult) * 100f) + "%");
-            if (stunOnHit > 0f) lines.Add("Stuns for " + stunOnHit.ToString("0.#") + "s");
-            if (chain > 0) lines.Add("Chains to " + chain + " more enemies");
-            if (dispelOnHit) lines.Add("Dispels War Cry and Drummers");
-            if (shots > 1) lines.Add("Fires " + shots + " stones per volley");
-            if (arrowStorm) lines.Add("Arrow Storm every 8s");
-            if (meteor) lines.Add("Meteor every 10s");
-            if (overcharge) lines.Add("Overcharge every 12s");
+            if (markOnHit) lines.Add("Marks targets");
+            if (burnDps > 0f) lines.Add("Burns " + burnDps.ToString("0") + "/s");
+            if (slowDuration > 0f) lines.Add("Slows " + Mathf.RoundToInt((1f - slowMult) * 100f) + "%");
+            if (stunOnHit > 0f) lines.Add("Stuns (interrupts)");
+            if (chain > 0) lines.Add("Chains x" + chain);
+            if (dispelOnHit) lines.Add("Dispels");
+            if (shots > 1) lines.Add(shots + " stones");
+            if (arrowStorm) lines.Add("Arrow Storm");
+            if (meteor) lines.Add("Meteor");
+            if (overcharge) lines.Add("Overcharge");
             return lines;
         }
 
-        public void Disable(float duration)
+        /// <summary>Knock the tower out (Gorruk's axe) or freeze it (Banshee's wail).</summary>
+        public void Disable(float duration, bool freeze = false)
         {
             disabledTimer = Mathf.Max(disabledTimer, duration);
-            Fx.Burst(Position, new Color(1f, 0.3f, 0.2f, 0.8f), 0.8f, 2f, 0.4f);
+            frozen = freeze;
+            if (freeze)
+            {
+                Fx.Burst(Position, new Color(0.6f, 0.85f, 1f, 0.9f), 0.8f, 2.2f, 0.45f);
+                Fx.Sparks(Position, new Color(0.8f, 0.95f, 1f, 1f), 10, 2.5f, 0.6f);
+            }
+            else Fx.Burst(Position, new Color(1f, 0.3f, 0.2f, 0.8f), 0.8f, 2f, 0.4f);
         }
 
         void Update()
@@ -241,15 +283,26 @@ namespace LastBastion
             {
                 popTimer = Mathf.Min(PopTime, popTimer + dt);
                 float k = popTimer / PopTime;
-                float s = 1f + 2.2f * Mathf.Pow(k - 1f, 3f) + 1.2f * Mathf.Pow(k - 1f, 2f);
-                transform.localScale = Vector3.one * Mathf.Max(0.05f, s);
+                float sc = 1f + 2.2f * Mathf.Pow(k - 1f, 3f) + 1.2f * Mathf.Pow(k - 1f, 2f);
+                transform.localScale = Vector3.one * Mathf.Max(0.05f, sc);
             }
 
             bool wasDisabled = disabledTimer > 0f;
             if (disabledTimer > 0f) disabledTimer -= dt;
             bool disabled = disabledTimer > 0f;
-            disabledMark1.enabled = disabledMark2.enabled = disabled;
-            if (disabled || wasDisabled) ApplyTint(disabled ? new Color(0.45f, 0.45f, 0.45f, 1f) : Color.white);
+            if (!disabled) frozen = false;
+            disabledMark1.enabled = disabledMark2.enabled = disabled && !frozen;
+            if (disabled || wasDisabled) ApplyTint(disabled ? (frozen ? new Color(0.6f, 0.85f, 1.25f, 1f) : new Color(0.45f, 0.45f, 0.45f, 1f)) : Color.white);
+
+            InAshStorm = LM.InAshStorm(Position);
+            if (rangeRing.enabled) rangeRing.transform.localScale = Vector3.one * EffectiveRange * 2f;
+
+            chargeBack.enabled = chargeRing.enabled = HasAbility && !disabled;
+            if (chargeRing.enabled)
+            {
+                chargeRing.sprite = Art.Radial(AbilityCharge);
+                chargeRing.color = AbilityCharge >= 0.99f ? Color.Lerp(Palette.HeroGlow, Color.white, 0.5f + 0.5f * Mathf.Sin(t * 10f)) : Palette.HeroGlow;
+            }
             if (disabled) return;
 
             SlowedByDrummer = LM.IsTowerSlowed(Position);
@@ -258,10 +311,12 @@ namespace LastBastion
 
             float rate = SlowedByDrummer ? Balance.DrummerTowerSlow : 1f;
             if (overchargeTimer > 0f) { overchargeTimer -= dt; rate *= 2f; }
+            if (rallyTimer > 0f) { rallyTimer -= dt; rate *= 1.3f; }
+            rallyGlow.enabled = rallyTimer > 0f;
             if (glow != null) glow.transform.localScale = Vector3.one * ((Overcharged ? 1.6f : 1.1f) + 0.1f * Mathf.Sin(t * 5f));
 
             cooldown -= dt * rate;
-            Enemy target = FindTarget(Range);
+            Enemy target = FindTarget(EffectiveRange);
             if (target != null)
             {
                 Aim(target.Position);
@@ -273,14 +328,21 @@ namespace LastBastion
             }
             else cooldown = Mathf.Max(cooldown, 0f);
 
-            if (arrowStorm || meteor || overcharge)
+            if (HasAbility)
             {
-                abilityTimer -= dt * rate;
+                if (abilityTimer > 0f) abilityTimer -= dt * rate;
                 if (abilityTimer <= 0f && target != null)
                 {
-                    if (arrowStorm) { ArrowStorm(); abilityTimer = 8f; }
-                    else if (meteor) { Meteor(target); abilityTimer = 10f; }
-                    else if (overcharge) { overchargeTimer = 4f; abilityTimer = 12f; Fx.Ring(Position, Palette.Magic, 0.5f, 1.6f, 0.5f); }
+                    Fx.Ring(Position, Palette.HeroGlow, 0.3f, 1.4f, 0.35f);
+                    if (arrowStorm) ArrowStorm();
+                    else if (meteor) Meteor(target);
+                    else if (overcharge)
+                    {
+                        overchargeTimer = 4f;
+                        Fx.Ring(Position, Palette.Magic, 0.5f, 1.6f, 0.5f);
+                        AudioManager.Play(Sfx.Zap, 0.8f, 0.2f);
+                    }
+                    abilityTimer = abilityInterval;
                 }
             }
         }
@@ -294,18 +356,41 @@ namespace LastBastion
             }
         }
 
+        bool CanTarget(Enemy e, float r2)
+        {
+            if (e == null || !e.Alive) return false;
+            if (e.IsHidden && !SeesInvisible) return false;
+            return (e.Position - Position).sqrMagnitude <= r2;
+        }
+
         Enemy FindTarget(float range)
         {
             Enemy best = null;
-            float bestDist = -1f;
+            float bestScore = float.MinValue;
             float r2 = range * range;
             foreach (var e in LM.Enemies)
             {
-                if (e == null || !e.Alive) continue;
-                if ((e.Position - Position).sqrMagnitude > r2) continue;
-                if (e.Distance > bestDist) { bestDist = e.Distance; best = e; }
+                if (!CanTarget(e, r2)) continue;
+                float score;
+                switch (Priority)
+                {
+                    case TargetPriority.Last: score = -e.Distance; break;
+                    case TargetPriority.Strong: score = e.Hp + (e.IsBoss ? 100000f : 0f); break;
+                    case TargetPriority.Close: score = -(e.Position - Position).sqrMagnitude; break;
+                    default: score = e.Distance; break;
+                }
+                if (score > bestScore) { bestScore = score; best = e; }
             }
             return best;
+        }
+
+        List<Enemy> TargetsInRange(float range)
+        {
+            var list = new List<Enemy>();
+            float r2 = range * range;
+            foreach (var e in LM.Enemies)
+                if (CanTarget(e, r2)) list.Add(e);
+            return list;
         }
 
         void Aim(Vector2 at)
@@ -321,6 +406,7 @@ namespace LastBastion
             {
                 case TowerType.Archer:
                     ShootArrow(from, target, Damage);
+                    AudioManager.Play(Sfx.Arrow, 0.35f, 0.15f);
                     break;
                 case TowerType.Catapult:
                     for (int i = 0; i < shots; i++)
@@ -328,9 +414,11 @@ namespace LastBastion
                         Vector2 aim = target.Position + (i == 0 ? Vector2.zero : Random.insideUnitCircle * 1.1f);
                         LobStone(from, aim, 1.0f + i * 0.12f);
                     }
+                    AudioManager.Play(Sfx.Catapult, 0.5f);
                     break;
                 case TowerType.Mage:
                     ShootBolt(from, target);
+                    AudioManager.Play(Sfx.Zap, 0.3f, 0.15f);
                     break;
             }
         }
@@ -362,7 +450,9 @@ namespace LastBastion
                 Fx.Burst(land, new Color(0.75f, 0.6f, 0.45f, 0.8f), radius * 0.6f, radius * 2.2f, 0.35f);
                 Fx.Ring(land, new Color(1f, 0.85f, 0.6f, 0.6f), 0.2f, radius, 0.3f);
                 if (burnDps > 0f) Fx.Burst(land, new Color(1f, 0.5f, 0.1f, 0.6f), radius, radius * 1.8f, 0.6f);
+                AudioManager.Play(Sfx.Impact, 0.4f);
                 if (LM == null) return;
+                // Splash hits everything, including invisible Goblin Sneaks.
                 foreach (var e in LM.EnemiesInRadius(land, radius))
                     Hit(e, dmg, kind);
             });
@@ -386,6 +476,7 @@ namespace LastBastion
                         foreach (var c in LM.Enemies)
                         {
                             if (c == null || !c.Alive || hitSoFar.Contains(c)) continue;
+                            if (c.IsHidden && !SeesInvisible) continue;
                             float d2 = (c.Position - lastPos).sqrMagnitude;
                             if (d2 < best) { best = d2; next = c; }
                         }
@@ -401,9 +492,9 @@ namespace LastBastion
 
         void ArrowStorm()
         {
-            var inRange = LM.EnemiesInRadius(Position, Range);
+            var inRange = TargetsInRange(EffectiveRange);
             if (inRange.Count == 0) return;
-            Fx.Ring(Position, Palette.BranchSpeed, 0.5f, 1.8f, 0.4f);
+            AudioManager.Play(Sfx.Arrow, 0.6f, 0.2f);
             Vector3 from = transform.position + new Vector3(0f, 0.2f, 0f);
             for (int i = 0; i < 6; i++)
                 ShootArrow(from, inRange[Random.Range(0, inRange.Count)], Damage * 0.7f);
@@ -414,10 +505,12 @@ namespace LastBastion
             Vector2 aim = target.Position;
             Vector3 from = new Vector3(aim.x - 3f, aim.y + 6f, 0f);
             Fx.Ring(aim, new Color(1f, 0.4f, 0.2f, 0.7f), 1.8f, 0.4f, 0.8f);
+            AudioManager.Play(Sfx.Dragonfire, 0.5f);
             Projectile.Lob(from, aim, 0.8f, 0.5f, Art.Glow, new Color(1f, 0.55f, 0.2f, 1f), new Vector2(1.1f, 1.1f), 0f, land =>
             {
                 Fx.Burst(land, new Color(1f, 0.6f, 0.2f, 0.9f), 1f, 4.2f, 0.5f);
                 Fx.Ring(land, new Color(1f, 0.85f, 0.5f, 0.8f), 0.3f, 1.8f, 0.4f);
+                AudioManager.Play(Sfx.Impact, 0.8f);
                 if (LM == null) return;
                 if (LM.CamCtl != null) LM.CamCtl.Shake(0.2f, 0.15f);
                 foreach (var e in LM.EnemiesInRadius(land, 1.8f))
@@ -430,7 +523,7 @@ namespace LastBastion
             if (e == null || !e.Alive) return;
             if (markOnHit) e.ApplyMark(4f);
             if (dispelOnHit) e.Dispel(3f);
-            e.TakeDamage(dmg, kind);
+            e.TakeDamage(dmg, kind, this);
             if (!e.Alive) return;
             if (slowDuration > 0f) e.ApplySlow(slowMult, slowDuration);
             if (burnDps > 0f) e.ApplyBurn(burnDps, 3f);

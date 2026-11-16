@@ -11,6 +11,13 @@ namespace LastBastion
         public static int SelectedLevel = 1;
         public static Difficulty CurrentDifficulty = Difficulty.Warden;
 
+        /// <summary>Hero chosen on Level Select (the tutorial always uses Sir Aldric). Remembered between runs.</summary>
+        public static int SelectedHero
+        {
+            get => PlayerPrefs.GetInt("LB_hero", HeroData.AldricId);
+            set { PlayerPrefs.SetInt("LB_hero", value); PlayerPrefs.Save(); }
+        }
+
         public static float EnemyHealthMult
         {
             get

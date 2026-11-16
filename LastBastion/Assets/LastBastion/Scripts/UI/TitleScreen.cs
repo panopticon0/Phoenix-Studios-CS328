@@ -15,6 +15,7 @@ namespace LastBastion
         {
             Time.timeScale = 1f;
             Art.MakeCamera(Palette.Ink, 5.4f);
+            AudioManager.PlayMusic(Music.Title);
             BuildBackdrop();
         }
 
@@ -103,12 +104,18 @@ namespace LastBastion
             float y = 480f;
             if (UI.Button(new Rect(left, y, 440f, 76f), "Campaign", BtnKind.Accent, 30)) SceneRouter.Go(SceneNames.LevelSelect);
             y += 92f;
+            if (UI.Button(new Rect(left, y, 440f, 68f), "Tutorial: Training Grounds", BtnKind.Normal, 24))
+            {
+                GameSession.SelectedLevel = Levels.TutorialId;
+                SceneRouter.Go(SceneNames.Level1);
+            }
+            y += 84f;
             if (UI.Button(new Rect(left, y, 440f, 68f), "How to Play", BtnKind.Normal, 26)) showHowTo = true;
             y += 84f;
             if (UI.Button(new Rect(left, y, 440f, 68f), "Quit", BtnKind.Normal, 26)) SceneRouter.Quit();
             GUI.enabled = prev;
 
-            GUI.Label(new Rect(left, H - 64f, 900f, 30f), "Alpha build  ·  Brian Hunt, Aiden Tjahjono, Micheal Biaggini", UI.S(20, TextAnchor.MiddleLeft, FontStyle.Normal, Palette.Dim));
+            GUI.Label(new Rect(left, H - 64f, 900f, 30f), "Beta build  ·  Brian Hunt, Aiden Tjahjono, Micheal Biaggini", UI.S(20, TextAnchor.MiddleLeft, FontStyle.Normal, Palette.Dim));
 
             if (showHowTo) DrawHowTo(W, H);
             UI.FrameEnd();
@@ -117,30 +124,31 @@ namespace LastBastion
         void DrawHowTo(float W, float H)
         {
             UI.Veil(0.7f);
-            float w = Mathf.Min(1100f, W - 120f), h = 760f;
+            float w = Mathf.Min(1180f, W - 120f), h = 860f;
             Rect r = new Rect((W - w) * 0.5f, (H - h) * 0.5f, w, h);
             UI.Panel(r, true);
             GUI.Label(new Rect(r.x + 40f, r.y + 28f, w - 80f, 50f), "How to Play", UI.S(44, TextAnchor.MiddleLeft, FontStyle.Bold, Palette.Parchment));
 
             string goal =
                 "<b>Goal:</b> Orcs march down the road toward the Last Bastion. Every orc that reaches the gate costs lives. " +
-                "Survive all 10 waves and defeat <b>Gorruk Skullsplitter</b> to win.\n\n" +
-                "<b>Build:</b> click a glowing stone plot, then pick an Archer Tower, Catapult or Mage Tower. Defeated orcs drop gold.\n" +
-                "<b>Upgrade:</b> click a tower. Each has Power, Speed and Utility branches. Take one to Tier 3 and a second to Tier 2.\n" +
-                "<b>Hero:</b> Sir Aldric blocks up to 3 orcs and fights them. Right-click to move him. Press <b>Q</b> for Shield Slam.\n" +
-                "<b>Watch out:</b> War Drummers slow nearby towers, and the Ember Vent burns orcs and Sir Aldric alike.";
-            GUI.Label(new Rect(r.x + 40f, r.y + 96f, w - 80f, 300f), goal, UI.S(22, TextAnchor.UpperLeft, FontStyle.Normal, Palette.Muted, true));
+                "Survive all 30 waves and defeat <b>Gorruk Skullsplitter</b> to win. New? Play the <b>Training Grounds</b> tutorial first.\n\n" +
+                "<b>Build:</b> drag a tower from the shop on the right onto open ground beside the road. Defeated orcs drop gold.\n" +
+                "<b>Upgrade:</b> click a tower. Each has Power, Speed and Utility paths (one to Tier 3, a second to Tier 2) and a targeting priority.\n" +
+                "<b>Hero:</b> pick one before each battle. <b>Sir Aldric</b> blocks enemies in melee (<b>Q</b> Shield Slam); <b>Kaela Swiftwind</b> shoots from range and spots invisible foes (<b>Q</b> Pinning Volley). Right-click to move. Each level gives a hero point to spend.\n" +
+                "<b>Interrupt:</b> bosses wind up big attacks. Stun them during the wind-up to cancel it.\n" +
+                "<b>Power-up:</b> Ember Shards charge Dragonfire. Drag it onto a crowd of orcs.";
+            GUI.Label(new Rect(r.x + 40f, r.y + 96f, w - 80f, 360f), goal, UI.S(21, TextAnchor.UpperLeft, FontStyle.Normal, Palette.Muted, true));
 
             string[,] keys =
             {
-                { "Left click", "Build on a plot / select a tower or hero" },
-                { "Right click", "Move Sir Aldric" },
-                { "Q", "Shield Slam (damage and stun nearby orcs)" },
-                { "Space", "Start the next wave early for bonus gold" },
+                { "Drag / Left click", "Build from the shop, select a tower or hero" },
+                { "Right click", "Move your hero" },
+                { "Q", "Hero ability (Shield Slam / Pinning Volley: damage + stun)" },
+                { "Space  /  4  /  R", "Next wave  /  Dragonfire  /  Rockslide" },
                 { "WASD / Arrows, Wheel", "Pan and zoom the camera (middle-drag pans too)" },
-                { "F  /  Esc  /  H", "Toggle 2x speed  /  pause  /  find the hero" },
+                { "F  /  Esc  /  H  /  M", "2x speed  /  pause  /  find hero  /  mute" },
             };
-            float y = r.y + 410f;
+            float y = r.y + 470f;
             for (int i = 0; i < keys.GetLength(0); i++)
             {
                 Rect k = new Rect(r.x + 40f, y, 300f, 40f);

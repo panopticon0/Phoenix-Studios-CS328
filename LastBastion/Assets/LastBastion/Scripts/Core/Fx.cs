@@ -30,6 +30,16 @@ namespace LastBastion
             fx.Init(r, life, s, new Vector3(s.x, s.y * 0.2f, 1f), Vector3.zero);
         }
 
+        /// <summary>A spray of small sparks flying outward.</summary>
+        public static void Sparks(Vector3 pos, Color color, int count, float speed, float life, int order = 46)
+        {
+            for (int i = 0; i < count; i++)
+            {
+                Vector2 dir = Random.insideUnitCircle.normalized * Random.Range(0.4f, 1f) * speed;
+                Burst(pos, color, Random.Range(0.12f, 0.24f), 0.03f, life * Random.Range(0.6f, 1f), Art.Circle, order, new Vector3(dir.x, dir.y, 0f));
+            }
+        }
+
         void Init(SpriteRenderer r, float l, Vector3 s0, Vector3 s1, Vector3 v)
         {
             sr = r; life = Mathf.Max(0.01f, l); startScale = s0; endScale = s1; velocity = v; baseColor = r.color;
