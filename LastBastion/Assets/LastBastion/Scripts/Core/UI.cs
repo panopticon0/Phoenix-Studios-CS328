@@ -149,6 +149,12 @@ namespace LastBastion
 
         public static void Circle(Rect r, Color c, float width) { Outline(r, c, width, Mathf.Min(r.width, r.height) * 0.5f); }
 
+        public static void Portrait(Rect r, Texture tex, Color tint)
+        {
+            if (Event.current.type != EventType.Repaint || tex == null) return;
+            GUI.DrawTexture(r, tex, ScaleMode.ScaleAndCrop, true, 0f, tint, 0f, Mathf.Min(r.width, r.height) * 0.5f);
+        }
+
         public static void Panel(Rect r, bool highlighted = false)
         {
             Rounded(r, Palette.PanelFill, 12f);

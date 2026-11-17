@@ -76,9 +76,34 @@ namespace LastBastion
         public static Sprite Square { get { if (square == null) square = MakeSquare(); return square; } }
         public static Sprite Triangle { get { if (triangle == null) triangle = MakeTriangle(128); return triangle; } }
 
+        // ---- Real art loading (Resources/Art/<name>.png), falls back to code-drawn shapes ----
+        static readonly Dictionary<string, Sprite> loadedArt = new Dictionary<string, Sprite>();
         // Radial "clock" fill sprites/textures for cooldowns, cached in 2% steps.
         static readonly Sprite[] radialSprites = new Sprite[51];
         static readonly Texture2D[] radialTextures = new Texture2D[51];
+
+        /// <summary>Real sprite from Resources/Art/<name>, or null if no art exists yet.</summary>
+        public static Sprite Load(string name)
+        {
+            if (!loadedArt.TryGetValue(name, out var s))
+            {
+                s = Resources.Load<Sprite>("Art/" + name);
+                loadedArt[name] = s; // a miss is cached too, so we only look once
+            }
+            return s;
+        }
+
+        /// <summary>
+        /// Same as Make, but uses real art if Resources/Art/<artName> exists.
+        /// Real art is drawn in its own colors (white tint); the fallback shape keeps the old tint.
+        /// </summary>
+        public static SpriteRenderer MakeArt(string name, Transform parent, string artName, Sprite fallback, Color tint,
+                                             Vector2 pos, Vector2 size, int order, float rotation = 0f)
+        {
+            var art = Load(artName);
+            return Make(name, parent, art != null ? art : fallback, art != null ? Color.white : tint,
+                        pos, size, order, rotation);
+        }
 
         /// <summary>Pie-shaped fill (0..1, clockwise from 12 o'clock) as a world sprite.</summary>
         public static Sprite Radial(float frac)

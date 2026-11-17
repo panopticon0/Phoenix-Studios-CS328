@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Diagnostics;
 using UnityEngine;
 
 namespace LastBastion
@@ -64,6 +65,9 @@ namespace LastBastion
         readonly List<SpriteRenderer> parts = new List<SpriteRenderer>();
         readonly List<Color> partColors = new List<Color>();
         Color bodyColor;
+        Sprite artS, artN, artE;
+        bool usesArt;
+        SpriteRenderer shadow;
 
         public static Enemy Create(EnemyType type, Transform parent, PathRoute route, int wave)
         {
@@ -98,13 +102,58 @@ namespace LastBastion
             Distance = 0f;
             transform.position = PositionAt(0f);
             BuildVisuals();
+            ApplyArt();
             bar = new HealthBar(transform, IsBoss ? 1.8f : 0.8f, Def.Radius + 0.35f, Palette.Bad);
             if (IsBoss) bar.AlwaysShow = true;
             bar.Set(1f);
             summonTimer = Def.SummonInterval;
         }
 
-        /// <summary>Place a freshly created enemy part-way along the road (summons, splits).</summary>
+        // If real art exists for this enemy, it replaces the code-drawn body circle.
+        // If real art exists for this enemy, it replaces the code-drawn body.
+        void ApplyArt()
+        {
+            string folder = Def.IsBoss ? "Bosses/" : "Enemies/";
+            string artPath = folder + Type.ToString().ToLower();
+            var art = Art.Load(artPath);
+            //UnityEngine.Debug.Log("ApplyArt: " + artPath + " | found=" + (art != null));
+
+            if (bodyRenderer == null || art == null) return;
+
+            artS = art;                          // south-facing (default)
+            artN = Art.Load(artPath + "_n");     // optional north-facing
+            artE = Art.Load(artPath + "_e");     // optional east-facing (west = mirrored)
+            usesArt = true;
+
+            bodyRenderer.sprite = art;
+            bodyRenderer.color = Color.white;
+            bodyColor = Color.white;             // TickEffects tints from this every frame
+
+            // Hide the code-drawn extras (helmet, spear, crown...) but keep the shadow, status
+            // marks and frenzy glow, which aren't in `parts`. Boss auras stay.
+            foreach (var sr in parts)
+                if (sr != bodyRenderer && !(Def.IsBoss && sr.name == "aura")) sr.enabled = false;
+
+            body.rotation = Quaternion.identity;
+
+            // The old shadow was a blob offset behind a rotating circle. With upright art it should
+            // be a small flat ellipse at the feet. Tweak the three numbers to taste.
+
+            if (shadow != null) shadow.enabled = false;
+
+            // Slightly reduce the Bone Golem's visual size.
+            if (Type == EnemyType.BoneGolem)
+            {
+                body.localScale *= 0.85f;
+            }
+            // Slightly reduce the Necromancers visual size.
+            if (Type == EnemyType.Necromancer)
+            {
+                body.localScale *= 0.85f;
+            }
+        }
+
+        /// Place a freshly created enemy part-way along the road (summons, splits).
         public void PlaceAt(float distance, bool summoned)
         {
             Distance = Mathf.Clamp(distance, 0f, path.Length - 0.1f);
@@ -125,7 +174,7 @@ namespace LastBastion
             body = new GameObject("Body").transform;
             body.SetParent(transform, false);
             float r = Def.Radius;
-            Art.Make("shadow", transform, Art.Circle, new Color(0f, 0f, 0f, 0.35f), new Vector2(0.05f, -0.12f), new Vector2(r * 2.3f, r * 1.4f), 18);
+            shadow = Art.Make("shadow", transform, Art.Circle, new Color(0f, 0f, 0f, 0.35f), new Vector2(0.05f, -0.12f), new Vector2(r * 2.3f, r * 1.4f), 18);
 
             switch (Type)
             {
@@ -449,7 +498,25 @@ namespace LastBastion
         protected void Face(Vector2 dir)
         {
             if (body == null || dir.sqrMagnitude < 0.0001f) return;
+            if (usesArt) { UpdateFacing(dir); return; }   // art stays upright; swap/flip the sprite instead
             body.rotation = Quaternion.Euler(0f, 0f, Mathf.Atan2(dir.y, dir.x) * Mathf.Rad2Deg);
+        }
+
+        /// <summary>Art stays upright: swap to the north/east sprite if we have one, flip for west.</summary>
+        void UpdateFacing(Vector2 dir)
+        {
+            if (!usesArt || dir.sqrMagnitude < 0.00001f) return;
+
+            if (Mathf.Abs(dir.x) > Mathf.Abs(dir.y))
+            {
+                bodyRenderer.sprite = artE != null ? artE : artS;   // side view, or south art if no east art yet
+                bodyRenderer.flipX = dir.x < 0f;                    // west = mirrored east
+            }
+            else
+            {
+                bodyRenderer.sprite = (dir.y > 0f && artN != null) ? artN : artS;
+                bodyRenderer.flipX = false;
+            }
         }
 
         public virtual void TakeDamage(float amount, DamageKind kind, Tower source = null, bool byHero = false)

@@ -15,6 +15,8 @@ namespace LastBastion
     {
         const float ShopW = 248f;
         const float PanelW = 372f;
+        const float HeroCardX = 16f, HeroCardY = 72f, HeroCardW = 500f, HeroCardH = 180f;
+        float rowStart = 16f;   // where the bottom row (objectives, toasts, level-up) begins
 
         LevelManager lm;
         Rect archerCard, waveButton, slamButton, powerCard, heroPortrait;
@@ -45,11 +47,12 @@ namespace LastBastion
 
             // Bloons-style: when the upgrade/hero panel docks on the right it REPLACES the shop.
             // (Drawing the shop underneath let its drag-cards grab clicks meant for the BUY buttons.)
-            bool panelOverShop = false;
+            bool panelOverShop = false, leftDock = false;
             if (lm.SelectedTower != null || lm.HeroSelected)
             {
                 Vector2 wp = lm.SelectedTower != null ? lm.SelectedTower.Position : (lm.HeroUnit.Dead ? lm.HeroUnit.RespawnPoint : lm.HeroUnit.Position);
                 panelOverShop = DockRect(wp, W, H).x > W * 0.5f;
+                leftDock = !panelOverShop;
             }
             if (!panelOverShop) DrawShop(W, H);
             else { archerCard = new Rect(0, 0, 0, 0); powerCard = new Rect(0, 0, 0, 0); }
@@ -58,8 +61,9 @@ namespace LastBastion
             DrawBossBar(W);
             if (lm.SelectedTower != null) DrawTowerPanel(W, H);
             else if (lm.HeroSelected) DrawHeroPanel(W, H);
-            // Bottom row beside the hero card: tutorial objective, level-up panel, advisor toast, key hints.
-            float rowX = 532f, rowRight = W - ShopW - 24f;
+            // Bottom row now starts at the left edge, or right of the upgrade panel when it's docked left.
+            rowStart = leftDock ? 16f + PanelW + 16f : 16f;
+            float rowX = rowStart, rowRight = W - ShopW - 24f;
             rowX = DrawObjectives(rowX, rowRight, H);
             rowX = DrawLevelUpPanel(rowX, rowRight, H);
             rowX = DrawToasts(rowX, rowRight, W, H);
@@ -362,13 +366,13 @@ namespace LastBastion
         void DrawHeroCard(float H)
         {
             var h = lm.HeroUnit;
-            Rect r = UI.Block(new Rect(16f, H - 196f, 500f, 180f));
+            Rect r = UI.Block(new Rect(HeroCardX, HeroCardY, HeroCardW, HeroCardH));
             UI.Panel(r, lm.HeroSelected);
 
             // Portrait (click to select / find him)
             Rect portrait = new Rect(r.x + 14f, r.y + 14f, 112f, 112f);
             heroPortrait = portrait;
-            DrawHeroFace(portrait, h.Def, h.Dead);
+            DrawHeroFace(portrait, h.Def, h.Dead, h.Name);
             if (h.Dead)
             {
                 UI.Clock(portrait, h.RespawnFrac, new Color(1f, 0.82f, 0.35f, 0.55f));
@@ -441,8 +445,9 @@ namespace LastBastion
         {
             Vector2 sp = G(worldPos);
             bool dockLeft = sp.x > (W - ShopW) * 0.5f;
-            float h = H - 76f - 216f;
-            return new Rect(dockLeft ? 16f : W - PanelW - 16f, 76f, PanelW, h);
+            float top = dockLeft ? HeroCardY + HeroCardH + 8f : 76f;
+            float bottom = dockLeft ? H - 16f : H - 216f;
+            return new Rect(dockLeft ? 16f : W - PanelW - 16f, top, PanelW, bottom - top);
         }
 
         void DrawTowerPanel(float W, float H)
@@ -622,17 +627,14 @@ namespace LastBastion
         {
             var h = lm.HeroUnit;
             if (!lm.LevelUpPanelOpen || h.Points <= 0 || lm.HeroSelected) return x;
-            float w = 440f, ph = 180f;
-            float y = H - 196f, origX = x;
-            bool inRow = right - x >= w;
-            if (!inRow)
-            {
-                // No room in the row: sit above the hero card instead.
-                x = 16f;
-                y = H - 196f - ph - 12f;
-                w = 500f;
-            }
+
+            float origX = x;                        // this panel no longer takes space in the bottom row
+            float w = HeroCardW, ph = 180f;         // same width as the hero card
+            x = rowStart;                           // left edge, or right of the upgrade panel when that's docked left
+            float y = HeroCardY + HeroCardH + 8f;   // directly below the hero card
+
             Rect r = UI.Block(new Rect(x, y, w, ph));
+
             float pulse = 0.5f + 0.5f * Mathf.Sin(Time.unscaledTime * 4f);
             UI.Rounded(r, new Color(0.07f, 0.09f, 0.05f, 0.96f), 12f);
             UI.Outline(r, Color.Lerp(Palette.HeroGlow, Palette.Good, pulse), 3f, 12f);
@@ -677,12 +679,24 @@ namespace LastBastion
             float by = r.y + 142f;
             if (UI.Button(new Rect(r.x + 16f, by, 170f, 30f), "Full tree  [H]", BtnKind.Ghost, 16)) lm.SelectHero();
             if (UI.Button(new Rect(r.xMax - 126f, by, 110f, 30f), "Later", BtnKind.Ghost, 16)) lm.DismissLevelUp();
-            return inRow ? r.xMax + 16f : origX;
+            return origX;
         }
 
-        /// <summary>Simple portrait for a hero (card, level-up panel, hero select).</summary>
-        public static void DrawHeroFace(Rect portrait, HeroDef d, bool dead)
+        /// <summary>Hero portrait (card, level-up panel, hero select): real art if present, else the code-drawn face.</summary>
+        public static void DrawHeroFace(Rect portrait, HeroDef d, bool dead, string heroName = null)
         {
+            // Art lookup: Resources/Art/Portraits/kaela.png or aldric.png ("Sir " is dropped).
+            string key = (heroName ?? (d.Ranged ? "kaela" : "aldric")).ToLower().Replace("sir ", "").Trim();
+            var art = Art.Load("Portraits/" + key);
+            if (art != null)
+            {
+                UI.Disc(portrait, Palette.Ink);
+                UI.Portrait(portrait, art.texture, dead ? new Color(0.4f, 0.4f, 0.4f, 1f) : Color.white);
+                UI.Circle(portrait, d.Glow, 4f);
+                return;
+            }
+
+            // ---- no art yet: the original code-drawn face ----
             UI.Disc(portrait, dead ? Palette.StoneDark : d.Body);
             UI.Circle(portrait, d.Glow, 4f);
             float s = portrait.width / 112f;
@@ -703,9 +717,11 @@ namespace LastBastion
         {
             var b = lm.Boss;
             if (b == null || !b.Alive) return;
-            float w = Mathf.Clamp(W - ShopW - 2f * 420f, 420f, 820f);
+            float left = HeroCardX + HeroCardW + 12f;
+            float avail = W - ShopW - 8f - left;
+            float w = Mathf.Clamp(avail - 40f, 420f, 820f);
             float y = 76f;
-            Rect r = UI.Block(new Rect((W - ShopW - w) * 0.5f, y, w, b.WindingUp ? 116f : 84f));
+            Rect r = UI.Block(new Rect(left + (avail - w) * 0.5f, y, w, b.WindingUp ? 116f : 84f));
             var gorruk = b as BossGorruk;
             bool enraged = gorruk != null && gorruk.Enraged;
             UI.Panel(r, b.WindingUp || enraged);
@@ -740,11 +756,11 @@ namespace LastBastion
             if (w < 320f)
             {
                 // Row is full (tutorial card + level-up panel): stack the toast above them.
-                left = 532f; w = Mathf.Min(680f, right - left);
+                left = rowStart; w = Mathf.Min(680f, right - left);
                 if (w < 320f) { left = 16f; w = Mathf.Min(680f, right - 16f); }
                 y = H - 196f - h - 12f;
             }
-            else if (rowX <= 532f) left = rowX + (right - rowX - w) * 0.5f;
+            else if (rowX <= rowStart) left = rowX + (right - rowX - w) * 0.5f;
             bool inRow = w >= 320f && y == H - 52f - h;
             Rect r = new Rect(left, y, w, h);
             UI.Block(r);
@@ -767,7 +783,7 @@ namespace LastBastion
                 a.Age = Mathf.Max(a.Age, a.Duration - 0.3f);
             GUI.enabled = prevE;
             GUI.color = prevColor;
-            return inRow && rowX > 532f ? r.xMax + 16f : rowX;
+            return inRow && rowX > rowStart ? r.xMax + 16f : rowX;
         }
 
         void DrawHint(float left, float right, float H)
