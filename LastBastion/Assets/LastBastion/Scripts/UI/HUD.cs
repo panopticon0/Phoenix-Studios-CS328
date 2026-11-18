@@ -16,6 +16,11 @@ namespace LastBastion
         const float ShopW = 248f;
         const float PanelW = 372f;
         const float HeroCardX = 16f, HeroCardY = 72f, HeroCardW = 500f, HeroCardH = 180f;
+        const float MinCardW = 300f, MinCardH = 76f;
+        // Hero card can be minimized to a compact strip (portrait, health, ability). Remembered between runs.
+        bool heroMin;
+        float CardW => heroMin ? MinCardW : HeroCardW;
+        float CardH => heroMin ? MinCardH : HeroCardH;
         float rowStart = 16f;   // where the bottom row (objectives, toasts, level-up) begins
 
         LevelManager lm;
@@ -27,6 +32,7 @@ namespace LastBastion
         void Awake()
         {
             lm = GetComponent<LevelManager>();
+            heroMin = PlayerPrefs.GetInt("LB_heroCardMin", 0) == 1;
         }
 
         void OnGUI()
@@ -366,8 +372,10 @@ namespace LastBastion
         void DrawHeroCard(float H)
         {
             var h = lm.HeroUnit;
+            if (heroMin) { DrawHeroCardMin(); return; }
             Rect r = UI.Block(new Rect(HeroCardX, HeroCardY, HeroCardW, HeroCardH));
             UI.Panel(r, lm.HeroSelected);
+            if (MinimizeButton(new Rect(r.xMax - 30f, r.y + 4f, 26f, 24f), "–", "Minimize the hero card")) return;
 
             // Portrait (click to select / find him)
             Rect portrait = new Rect(r.x + 14f, r.y + 14f, 112f, 112f);
@@ -416,18 +424,86 @@ namespace LastBastion
             }
             GUI.Label(new Rect(x, r.y + 130f, w, 40f), h.Points > 0 ? "<color=#7FC36A>Hero point ready!</color> Spend it in the tree." : "RMB: move  ·  click portrait: skill tree", UI.S(15, TextAnchor.UpperLeft, FontStyle.Normal, Palette.Dim, true));
 
-            // Shield Slam: big round button with a radial cooldown clock
-            Rect ab = new Rect(r.xMax - 118f, r.y + 20f, 100f, 100f);
+            // Ability: big round button with a radial cooldown clock
+            DrawAbilityButton(new Rect(r.xMax - 118f, r.y + 20f, 100f, 100f), h, false);
+        }
+
+        /// <summary>Compact hero strip: portrait, level, health and the ability button. "+" restores the full card.</summary>
+        void DrawHeroCardMin()
+        {
+            var h = lm.HeroUnit;
+            Rect r = UI.Block(new Rect(HeroCardX, HeroCardY, MinCardW, MinCardH));
+            UI.Panel(r, lm.HeroSelected);
+            if (MinimizeButton(new Rect(r.xMax - 28f, r.y + 4f, 24f, 22f), "+", "Expand the hero card")) return;
+
+            Rect portrait = new Rect(r.x + 10f, r.y + 10f, 56f, 56f);
+            heroPortrait = portrait;
+            DrawHeroFace(portrait, h.Def, h.Dead, h.Name);
+            if (h.Dead)
+            {
+                UI.Clock(portrait, h.RespawnFrac, new Color(1f, 0.82f, 0.35f, 0.55f));
+                GUI.Label(portrait, Mathf.CeilToInt(h.RespawnLeft) + "s", UI.S(20, TextAnchor.MiddleCenter, FontStyle.Bold, Palette.Parchment));
+            }
+            if (h.Points > 0)
+            {
+                float pl = 0.5f + 0.5f * Mathf.Sin(Time.unscaledTime * 6f);
+                Rect pt = new Rect(portrait.x - 4f, portrait.y - 4f, 26f, 26f);
+                UI.Disc(pt, Color.Lerp(Palette.Good, Color.white, pl * 0.3f));
+                GUI.Label(pt, "+" + h.Points, UI.S(14, TextAnchor.MiddleCenter, FontStyle.Bold, Palette.Ink));
+            }
+            if (GUI.Button(portrait, GUIContent.none, GUIStyle.none))
+            {
+                lm.SelectHero();
+                lm.CamCtl.Focus(h.Dead ? h.RespawnPoint : h.Position);
+            }
+
+            float x = portrait.xMax + 10f, w = 124f;
+            GUI.Label(new Rect(x, r.y + 6f, w + 10f, 24f), h.Name + "  <color=#FFD36A>Lv " + h.Level + "</color>", UI.S(17, TextAnchor.MiddleLeft, FontStyle.Bold, Palette.Parchment));
+            if (h.Dead)
+                GUI.Label(new Rect(x, r.y + 32f, w, 36f), "Back in " + Mathf.CeilToInt(h.RespawnLeft) + "s", UI.S(15, TextAnchor.UpperLeft, FontStyle.Bold, Palette.Bad));
+            else
+            {
+                UI.Bar(new Rect(x, r.y + 34f, w, 14f), h.Hp / h.MaxHp, h.Hp / h.MaxHp > 0.35f ? Palette.Good : Palette.Bad, new Color(0f, 0f, 0f, 0.6f));
+                GUI.Label(new Rect(x, r.y + 34f, w, 14f), Mathf.CeilToInt(h.Hp) + " / " + Mathf.CeilToInt(h.MaxHp), UI.S(12, TextAnchor.MiddleCenter, FontStyle.Bold, Palette.Parchment));
+                UI.Bar(new Rect(x, r.y + 54f, w, 6f), h.XpIntoLevel, Palette.HeroGlow, new Color(0f, 0f, 0f, 0.6f));
+            }
+
+            DrawAbilityButton(new Rect(r.xMax - 92f, r.y + 10f, 56f, 56f), h, true);
+        }
+
+        bool MinimizeButton(Rect b, string glyph, string tip)
+        {
+            bool hover = b.Contains(Event.current.mousePosition);
+            UI.Rounded(b, new Color(1f, 1f, 1f, hover ? 0.16f : 0.06f), 6f);
+            GUI.Label(b, glyph, UI.S(18, TextAnchor.MiddleCenter, FontStyle.Bold, hover ? Palette.Parchment : Palette.Dim));
+            if (hover) { tipTitle = heroMin ? "Expand" : "Minimize"; tipBody = tip + " (remembered next time)."; tipAnchor = b; tipLeft = false; }
+            if (!GUI.Button(b, GUIContent.none, GUIStyle.none)) return false;
+            heroMin = !heroMin;
+            try { PlayerPrefs.SetInt("LB_heroCardMin", heroMin ? 1 : 0); PlayerPrefs.Save(); } catch { }
+            AudioManager.Play(Sfx.Click, 0.6f);
+            return true;
+        }
+
+        /// <summary>Round ability button with a radial cooldown clock (full and compact sizes).</summary>
+        void DrawAbilityButton(Rect ab, Hero h, bool compact)
+        {
             slamButton = ab;
             bool ready = h.AbilityReady;
             float rp = 0.5f + 0.5f * Mathf.Sin(Time.unscaledTime * 5f);
-            if (ready) UI.Disc(new Rect(ab.x - 8f * rp, ab.y - 8f * rp, ab.width + 16f * rp, ab.height + 16f * rp), new Color(1f, 0.85f, 0.4f, 0.25f));
+            float grow = compact ? 5f : 8f;
+            if (ready) UI.Disc(new Rect(ab.x - grow * rp, ab.y - grow * rp, ab.width + 2f * grow * rp, ab.height + 2f * grow * rp), new Color(1f, 0.85f, 0.4f, 0.25f));
             UI.Disc(ab, ready ? Palette.Hex("#6A4A18") : Palette.Hex("#2A221D"));
             if (!ready && !h.Dead) UI.Clock(new Rect(ab.x + 4f, ab.y + 4f, ab.width - 8f, ab.height - 8f), 1f - h.AbilityLeft / h.AbilityCooldown, new Color(1f, 0.82f, 0.35f, 0.45f));
-            UI.Circle(ab, ready ? Palette.HeroGlow : Palette.PanelBorder, 4f);
-            UI.Disc(new Rect(ab.center.x - 22f, ab.center.y - 26f, 44f, 36f), ready ? Palette.Hex("#D9C27A") : Palette.Hex("#5A524A"));
-            GUI.Label(new Rect(ab.x, ab.y + 54f, ab.width, 36f), ready ? "Q" : h.Dead ? "-" : Mathf.CeilToInt(h.AbilityLeft) + "s", UI.S(ready ? 22 : 26, TextAnchor.MiddleCenter, FontStyle.Bold, ready ? Palette.Parchment : Palette.Muted));
-            GUI.Label(new Rect(ab.x - 24f, ab.yMax + 4f, ab.width + 48f, 22f), ready ? "<color=#FFD36A>" + h.Def.AbilityName.ToUpper() + "</color>" : h.Def.AbilityName, UI.S(14, TextAnchor.MiddleCenter, FontStyle.Bold, Palette.Muted));
+            UI.Circle(ab, ready ? Palette.HeroGlow : Palette.PanelBorder, compact ? 3f : 4f);
+            string label = ready ? "Q" : h.Dead ? "-" : Mathf.CeilToInt(h.AbilityLeft) + "s";
+            if (compact)
+                GUI.Label(ab, label, UI.S(ready ? 22 : 18, TextAnchor.MiddleCenter, FontStyle.Bold, ready ? Palette.Parchment : Palette.Muted));
+            else
+            {
+                UI.Disc(new Rect(ab.center.x - 22f, ab.center.y - 26f, 44f, 36f), ready ? Palette.Hex("#D9C27A") : Palette.Hex("#5A524A"));
+                GUI.Label(new Rect(ab.x, ab.y + 54f, ab.width, 36f), label, UI.S(ready ? 22 : 26, TextAnchor.MiddleCenter, FontStyle.Bold, ready ? Palette.Parchment : Palette.Muted));
+                GUI.Label(new Rect(ab.x - 24f, ab.yMax + 4f, ab.width + 48f, 22f), ready ? "<color=#FFD36A>" + h.Def.AbilityName.ToUpper() + "</color>" : h.Def.AbilityName, UI.S(14, TextAnchor.MiddleCenter, FontStyle.Bold, Palette.Muted));
+            }
             if (GUI.Button(ab, GUIContent.none, GUIStyle.none)) h.UseAbility();
             if (ab.Contains(Event.current.mousePosition))
             {
@@ -445,7 +521,7 @@ namespace LastBastion
         {
             Vector2 sp = G(worldPos);
             bool dockLeft = sp.x > (W - ShopW) * 0.5f;
-            float top = dockLeft ? HeroCardY + HeroCardH + 8f : 76f;
+            float top = dockLeft ? HeroCardY + CardH + 8f : 76f;
             float bottom = dockLeft ? H - 16f : H - 216f;
             return new Rect(dockLeft ? 16f : W - PanelW - 16f, top, PanelW, bottom - top);
         }
@@ -631,7 +707,7 @@ namespace LastBastion
             float origX = x;                        // this panel no longer takes space in the bottom row
             float w = HeroCardW, ph = 180f;         // same width as the hero card
             x = rowStart;                           // left edge, or right of the upgrade panel when that's docked left
-            float y = HeroCardY + HeroCardH + 8f;   // directly below the hero card
+            float y = HeroCardY + CardH + 8f;       // directly below the hero card
 
             Rect r = UI.Block(new Rect(x, y, w, ph));
 
@@ -717,7 +793,7 @@ namespace LastBastion
         {
             var b = lm.Boss;
             if (b == null || !b.Alive) return;
-            float left = HeroCardX + HeroCardW + 12f;
+            float left = HeroCardX + CardW + 12f;
             float avail = W - ShopW - 8f - left;
             float w = Mathf.Clamp(avail - 40f, 420f, 820f);
             float y = 76f;
