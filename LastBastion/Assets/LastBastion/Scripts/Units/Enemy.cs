@@ -141,6 +141,12 @@ namespace LastBastion
 
             if (shadow != null) shadow.enabled = false;
 
+            // Slightly reduce the ironhide visual size.
+            if (Type == EnemyType.Ironhide)
+            {
+                body.localScale *= 0.85f;
+            }
+
             // Slightly reduce the Bone Golem's visual size.
             if (Type == EnemyType.BoneGolem)
             {

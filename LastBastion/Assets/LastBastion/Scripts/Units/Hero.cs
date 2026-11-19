@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Diagnostics;
 using UnityEngine;
 
 namespace LastBastion
@@ -75,6 +76,11 @@ namespace LastBastion
         bool moving, lastStandUsed;
         float attackTimer, regenDelay, respawnTimer, abilityTimer, flashTimer, invulnTimer, t;
         Transform visuals;
+        bool usingArt;
+        Sprite[][] dirFrames;                 // 0 = right (e), 1 = up (n), 2 = left (w), 3 = down (base)
+        bool directional;
+        int facing = 3;
+        float animT;
         SpriteRenderer bodyRenderer, selectRing, moveMarker, halo, heroRing, slamPreview, rangePreview, readyGlow, respawnClock, respawnBase;
         HealthBar bar;
 
@@ -109,7 +115,28 @@ namespace LastBastion
             visuals = new GameObject("Visuals").transform;
             visuals.SetParent(transform, false);
             visuals.localScale = Vector3.one * 1.25f;
-            if (Ranged)
+
+            string artName = "Heroes/" + Def.ShortName;      // Heroes/Kaela. Capitalization must match the file name
+            string[] dirFiles = { artName + "_e", artName + "_n", artName + "_w", artName };   // right, up, left, down
+            dirFrames = new Sprite[4][];
+            bool dirArt = true;
+            for (int i = 0; i < 4; i++)
+            {
+                dirFrames[i] = LoadSheet(dirFiles[i]);
+                if (dirFrames[i].Length == 0) dirArt = false;
+            }
+            string idleName = dirArt ? artName : (Art.Load(artName) != null ? artName : null);
+
+            if (idleName != null)
+            {
+                usingArt = true;
+                directional = dirArt;
+                visuals.localScale = Vector3.one * 0.6f;   // tune to taste
+                bodyRenderer = Art.MakeArt("body", visuals, idleName, Art.Circle, Color.white,
+                                           Vector2.zero, Vector2.one, 25);
+                if (directional) bodyRenderer.sprite = dirFrames[3][0];
+            }
+            else if (Ranged)
             {
                 Art.Make("cloak", visuals, Art.Circle, Def.Cloak, new Vector2(-0.14f, 0f), new Vector2(0.74f, 0.78f), 24);
                 Art.Make("quiver", visuals, Art.Square, Palette.Hex("#7A5232"), new Vector2(-0.22f, -0.16f), new Vector2(0.36f, 0.12f), 25, 30f);
@@ -143,6 +170,24 @@ namespace LastBastion
             respawnBase = Art.Make("respawnBase", null, Art.Circle, new Color(0f, 0f, 0f, 0.55f), respawnPos, Vector2.one * 1.5f, 30);
             respawnClock = Art.Make("respawnClock", null, Art.Radial(0f), new Color(g.r, g.g, g.b, 0.85f), respawnPos, Vector2.one * 1.3f, 31);
             respawnBase.enabled = respawnClock.enabled = false;
+
+          //UnityEngine.Debug.Log($"{Def.ShortName}: art={(idleName != null)} directional={directional} " +
+          //$"frames e/n/w/down={dirFrames[0].Length}/{dirFrames[1].Length}/{dirFrames[2].Length}/{dirFrames[3].Length} " +
+          //$"body size={bodyRenderer.bounds.size} sprite={(bodyRenderer.sprite != null ? bodyRenderer.sprite.name : "NONE")}");
+        }
+
+
+        static Sprite[] LoadSheet(string path)
+        {
+            var all = Resources.LoadAll<Sprite>("Art/" + path);
+            System.Array.Sort(all, (a, b) => SuffixNum(a.name).CompareTo(SuffixNum(b.name)));
+            return all;
+        }
+
+        static int SuffixNum(string n)
+        {
+            int i = n.LastIndexOf('_');
+            return i >= 0 && int.TryParse(n.Substring(i + 1), out int v) ? v : 0;
         }
 
         void OnDestroy()
@@ -401,12 +446,23 @@ namespace LastBastion
             }
 
             if (flashTimer > 0f) flashTimer -= dt;
-            Color baseC = invulnTimer > 0f ? Color.Lerp(Def.Body, Def.Glow, 0.5f + 0.5f * Mathf.Sin(t * 20f)) : Def.Body;
+
+            if (directional)
+            {
+                var frames = dirFrames[facing];
+                int idx = 0;
+                if (moving && frames.Length > 1) { animT += dt * 8f; idx = (int)animT % frames.Length; }
+                else animT = 0f;
+                bodyRenderer.sprite = frames[idx];
+            }
+
+            Color bodyCol = usingArt ? Color.white : Def.Body;
+            Color baseC = invulnTimer > 0f ? Color.Lerp(bodyCol, Def.Glow, 0.5f + 0.5f * Mathf.Sin(t * 20f)) : bodyCol;
             bodyRenderer.color = flashTimer > 0f ? Color.Lerp(baseC, Color.white, 0.7f) : baseC;
             bar.SetColor(Hp / MaxHp > 0.35f ? Palette.Good : Palette.Bad);
         }
 
-        bool UpdateMelee(LevelManager lm, float dt)
+            bool UpdateMelee(LevelManager lm, float dt)
         {
             if (!moving && lm != null && blocked.Count < MaxBlock)
             {
@@ -425,6 +481,7 @@ namespace LastBastion
             if (moving || blocked.Count == 0) return false;
 
             Enemy target = blocked[0];
+           
             Face(target.Position - Position);
             attackTimer -= dt;
             if (attackTimer <= 0f)
@@ -545,6 +602,11 @@ namespace LastBastion
         void Face(Vector2 dir)
         {
             if (dir.sqrMagnitude < 0.0001f) return;
+            if (directional)
+            {
+                facing = Mathf.Abs(dir.x) > Mathf.Abs(dir.y) ? (dir.x > 0f ? 0 : 2) : (dir.y > 0f ? 1 : 3);
+                return;
+            }
             visuals.rotation = Quaternion.Euler(0f, 0f, Mathf.Atan2(dir.y, dir.x) * Mathf.Rad2Deg);
         }
     }
